@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""headers_parser — C++ header structs (.hpp) in the MK8DX-Headers style.
+"""headers_parser -- C++ header structs (.hpp) in the MK8DX-Headers style.
 
 Parses `class/struct X { type field; //0xNN ... };` with explicit offsets in
-comments (the MK8DX-Headers convention — declared packing, no guessing).
+comments (the MK8DX-Headers convention -- declared packing, no guessing).
 Enums, methods, statics and nested structs are ignored (data layout only).
 
 Usage (library):
@@ -72,7 +72,7 @@ def parse_hpp(path: Path) -> list[HStruct]:
     out: list[HStruct] = []
     text = path.read_text(errors="replace").replace("\r\n", "\n")
     # methods/statics/nested: drop inner { ... } blocks of signatures
-    # (keeps fields — they have no {})
+    # (keeps fields -- they have no {})
     for m in _RE_STRUCT.finditer(text):
         name = m.group(1)
         i = m.end()

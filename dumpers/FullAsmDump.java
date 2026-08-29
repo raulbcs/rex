@@ -1,7 +1,7 @@
 // Exports the full asm listing of ALL program functions (no filter).
 // Output (default = $REX_ROOT/data/asm-full; override: single arg = output dir):
 //   shard-NNN.txt (500 funcs/shard) + functions.tsv (entry, name, insns, shard).
-// SHARD=500 aligned with FullDecompDump — identical numbering across corpora
+// SHARD=500 aligned with FullDecompDump -- identical numbering across corpora
 // is a shard_resolve.py requirement (asm↔decomp of the same function set).
 // Run via rex shards (~/projects/rex) or Method B: compile, copy .java+.class
 // to the Decompiler feature scripts dir, clear OSGi cache, -noanalysis -postScript.

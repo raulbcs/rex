@@ -1,7 +1,7 @@
 // Decompiles ALL program functions (C pseudocode) via DecompInterface.
 // Output (default = $REX_ROOT/data/decomp-full; override: single arg = output dir):
 //   shard-NNN.txt (500 funcs/shard) + functions.tsv (entry\tname\tstatus\tshard)
-//   + progress.log (line every 100 funcs with rate/ETA — tail -f friendly).
+//   + progress.log (line every 100 funcs with rate/ETA -- tail -f friendly).
 // Resume: existing functions.tsv is loaded; 'ok' functions are skipped.
 // Run via rex shards (~/projects/rex) or Method B, NEUTRAL cwd.
 // @category MK8DX.Batch

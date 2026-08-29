@@ -1,7 +1,7 @@
-"""rexconfig — rex configuration: env > ~/.rexrc. No project paths in code.
+"""rexconfig -- rex configuration: env > ~/.rexrc. No project paths in code.
 
 ~/.rexrc format is KEY=VALUE (# comments). Keys:
-  REX_ROOT          target data root (e.g. /path/project/03-analysis) — REQUIRED
+  REX_ROOT          target data root (e.g. /path/project/03-analysis) -- REQUIRED
   REX_HEADERS       headers include/ dir with .hpp (rex headers / ann badge)
   REX_DUMPERS       dumpers .java dir (default $REX_ROOT/dumpers)
   REX_GHIDRA_PROJ   Ghidra project dir (default $REX_ROOT/ghidra-project)
@@ -41,10 +41,10 @@ def cfg(key: str, default: str | None = None) -> str | None:
 
 
 def root() -> Path:
-    """REX_ROOT (env or ~/.rexrc) — or exit with a clear instruction."""
+    """REX_ROOT (env or ~/.rexrc) -- or exit with a clear instruction."""
     r = cfg("REX_ROOT")
     if not r:
-        print("ERROR: REX_ROOT not configured — no guessing project paths.\n"
+        print("ERROR: REX_ROOT not configured -- no guessing project paths.\n"
               "  export REX_ROOT=/path/to/target/03-analysis   (or create ~/.rexrc):\n"
               "    REX_ROOT=/path/03-analysis\n"
               "  (the mk8dx-re shim configures this automatically)",

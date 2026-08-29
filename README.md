@@ -4,7 +4,7 @@ Static-analysis toolkit for Switch games (NSO binaries): raw binary + Ghidra
 corpus + C++ headers, queried through one CLI.
 
 Ask it things like *which function contains this address*, *who calls it*,
-*who writes to this struct offset*, *what vtable is this* — without opening
+*who writes to this struct offset*, *what vtable is this* -- without opening
 Ghidra again. It also **generates the corpus** (decomp + asm dumps of every
 function) from an existing Ghidra project.
 
@@ -32,7 +32,7 @@ uv run python ~/projects/rex/rex.py ann 0x7100174778    # annotated decomp
 ```
 
 Prerequisites for step 2: a Ghidra project with the game binary already
-imported and analyzed (one-time, via GUI — see below), plus `uv`, `javac`,
+imported and analyzed (one-time, via GUI -- see below), plus `uv`, `javac`,
 and Ghidra 12.x installed.
 
 ## Dependencies
@@ -51,14 +51,14 @@ Setup (one-time):
 # 1. Ghidra + JDK 21
 brew install ghidra openjdk@21
 
-# 2. SwitchLoader extension — clone & build against your Ghidra:
+# 2. SwitchLoader extension -- clone & build against your Ghidra:
 git clone https://github.com/borntohonk/Ghidra-Switch-Loader
 cd Ghidra-Switch-Loader
 gradle -PGHIDRA_INSTALL_DIR=/opt/homebrew/Cellar/ghidra/12.1.2/libexec
 # → produces a SwitchLoader-<ver>-Ghidra_12.1.2.zip in dist/
 # 3. Install it: Ghidra GUI → File → Install Extensions → + → the zip →
 #    restart Ghidra when prompted. (Or unzip straight into
-#    <GHIDRA_HOME>/Extensions/Ghidra/ — that also works.)
+#    <GHIDRA_HOME>/Extensions/Ghidra/ -- that also works.)
 
 # 4. uv (if you don't have it)
 brew install uv
@@ -80,10 +80,10 @@ hactool -t nso main-binary/main --uncompressed=main-binary/uncompressed_main
 **2. Import into Ghidra (once, GUI).** `ghidraRun` → **File → New Project**
 (non-shared) at `<target>/ghidra-project/` → then **File → Import File** →
 `uncompressed_main` → format **Nintendo Switch Binary** (from SwitchLoader;
-if it's not in the format list, the extension isn't installed — see
+if it's not in the format list, the extension isn't installed -- see
 Dependencies) → keep default analyzers + enable **Switch IPC** → let it run
 (~30 min for a 19MB NSO) → save. Headless can't load the extension on its
-own, so this step is manual — but only once.
+own, so this step is manual -- but only once.
 
 **3. Lay out the target.**
 
@@ -96,7 +96,7 @@ own, so this step is manual — but only once.
 ```
 
 **4. Configure & generate.** Put `REX_ROOT` in `~/.rexrc` (or export it),
-then `rex shards`. Done — everything else is reading.
+then `rex shards`. Done -- everything else is reading.
 
 ## What to query
 
@@ -115,21 +115,21 @@ Every command that takes a VA also takes a short name (`rex ann DriftCalc`).
 
 ## Making it yours
 
-- **`~/.rexrc`** — all config lives there (or env vars, which win). Keys and
+- **`~/.rexrc`** -- all config lives there (or env vars, which win). Keys and
   defaults: `rexconfig.py`. The one required key is `REX_ROOT`.
-- **Annotations** — the more you feed it, the smarter `ann` gets: a
+- **Annotations** -- the more you feed it, the smarter `ann` gets: a
   `notes/MEMORY-MAP.md` with offset owners, `data/*.json` registries (short
   names, globals, enums, vtables), and `REX_HEADERS` pointing at C++ headers
   with offset comments (MK8DX-Headers style).
-- **Config is law** — if you set something and it's invalid, rex errors out
+- **Config is law** -- if you set something and it's invalid, rex errors out
   immediately instead of silently falling back.
 
-Deep reference — every command, registry file formats, badge legend, and the
-gotchas (OSGi cache, lying headless exit codes) — lives in
+Deep reference -- every command, registry file formats, badge legend, and the
+gotchas (OSGi cache, lying headless exit codes) -- lives in
 [docs/REFERENCE.md](docs/REFERENCE.md).
 
 ## mk8dx-re
 
 The main repo ships a shim (`03-analysis/scripts/rex.py`) that sets
-`REX_ROOT` to itself and loads rex from here — its regen pipeline and
+`REX_ROOT` to itself and loads rex from here -- its regen pipeline and
 docs keep working with zero configuration.

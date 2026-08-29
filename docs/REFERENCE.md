@@ -1,4 +1,4 @@
-# rex — reference
+# rex -- reference
 
 Everything the quickstart doesn't cover. `rex --help` prints the same command
 list from the module docstring.
@@ -24,14 +24,14 @@ error, no silent fallback.
 
 | key | default | meaning |
 |---|---|---|
-| `REX_ROOT` | — (**required**) | target dir (any layout matching below) |
+| `REX_ROOT` | -- (**required**) | target dir (any layout matching below) |
 | `REX_BIN` | `main-binary/uncompressed_main` | raw binary, relative to ROOT |
 | `REX_DUMPERS` | `$REX_ROOT/dumpers` | dir with the dump `.java` files |
 | `REX_GHIDRA_PROJ` | `$REX_ROOT/ghidra-project` | Ghidra project dir |
 | `REX_GPR` | `MK8DX.gpr` | project file name inside it |
 | `REX_PROGRAM` | `uncompressed_main` | program name inside the Ghidra project |
 | `REX_BASE` | `0x7100000000` | NSO VA base |
-| `REX_HEADERS` | — | headers `include/` dir (see below) |
+| `REX_HEADERS` | -- | headers `include/` dir (see below) |
 | `GHIDRA_HOME` | homebrew 12.1.2 | Ghidra install |
 
 ## Target layout
@@ -47,7 +47,7 @@ error, no silent fallback.
   notes/MEMORY-MAP.md              optional: offset owners (feeds ann)
 ```
 
-Bootstrap: `mkdir -p <target> && cp -r ~/projects/rex/dumpers <target>/` —
+Bootstrap: `mkdir -p <target> && cp -r ~/projects/rex/dumpers <target>/` --
 the rex copy is canonical; `REX_DUMPERS` may point straight at it.
 
 ## Corpus generation (`rex shards`)
@@ -69,7 +69,7 @@ from a neutral cwd (`/tmp`) → fail on `SCRIPT ERROR` in the log.
   `~/.rexrc`)
 
 Output: `data/{decomp,asm}-full/shard-NNN.txt` (500 functions per shard) +
-`functions.tsv`. Shard numbering is identical across both corpora — a hard
+`functions.tsv`. Shard numbering is identical across both corpora -- a hard
 requirement of `shard_resolve`.
 
 ## Command reference
@@ -107,7 +107,7 @@ registry short names (`rex ann DriftCalc`).
 |---|---|
 | `+0x1e4=Director: ...` | owner confirmed by the line's own context |
 | `+0x1e4≈Owner: ...` | heuristic single owner (confirm the base object) |
-| `+0x1e4=? A ... \| B ...` | ambiguous — multiple owners have this offset |
+| `+0x1e4=? A ... \| B ...` | ambiguous -- multiple owners have this offset |
 | trailing `?` | source status UNCONFIRMED/PARTIAL |
 | `hdr:Struct.field` | from the C++ headers (REX_HEADERS), when MEMORY-MAP doesn't cover |
 | `⭐ note` | curated note from `function-notes.json` |
@@ -119,24 +119,24 @@ top-level `"_comment"` key is ignored everywhere. VAs are hex strings
 **without** `0x` prefix.
 
 ```jsonc
-// data/function-names.json — short names, usable wherever a VA is
+// data/function-names.json -- short names, usable wherever a VA is
 {"7100172ab0": "DriftCalc", "71001728fc": "MoveStep"}
 
-// data/globals.json — DAT_ symbols → names
+// data/globals.json -- DAT_ symbols → names
 {"KartDirectorHolder": {"va": "7101300398", "tag": "holder", "value": "0x71011b2fe0"}}
 
-// data/enums.json — known values/masks, annotated in ann comparisons
+// data/enums.json -- known values/masks, annotated in ann comparisons
 {"control_byte": {"field": "KartUnit+0x78 (low byte)",
                   "values": {"1": "idle", "5": "drift"},
                   "bits": {"0x200": "mini-turbo L1"}}}
 
-// data/vtables.json — curated vtable registry; slots=0 → auto-detect
+// data/vtables.json -- curated vtable registry; slots=0 → auto-detect
 {"vt_kartunit": {"va": "71011b2fe0", "slots": 80}}
 
-// data/ctors.json — named ctors
+// data/ctors.json -- named ctors
 {"KartUnitCtor": {"va": "710017ff78"}}
 
-// data/function-notes.json — one-line curated notes (⭐ in ann)
+// data/function-notes.json -- one-line curated notes (⭐ in ann)
 {"7100003208": "RaceDirector::calc [CONFIRMED]"}
 ```
 
@@ -182,17 +182,17 @@ You need the game dump (update NSP carries the newest code), `prod.keys` +
 
 ```bash
 # 1. PROGRAM NCA out of the update NSP (nstool, or hac.py from
-#    borntohonk/Switch-Ghidra-Guides) — the big one with an ExeFS
+#    borntohonk/Switch-Ghidra-Guides) -- the big one with an ExeFS
 # 2. ExeFS out of the NCA (titlekey decrypts):
 hactool -k prod.keys --titlekey <TITLEKEY> -t nca \
   --exefsdir <target>/main-binary/
 #    → main, main.npdm, rtld, sdk, subsdk0
-# 3. Decompress the main NSO — this is the file rex reads:
+# 3. Decompress the main NSO -- this is the file rex reads:
 hactool -t nso <target>/main-binary/main \
   --uncompressed=<target>/main-binary/uncompressed_main
 ```
 
-Note the Build ID (e.g. `FE941ED5BA14BE5D` for MK8DX 3.0.5) — it identifies
+Note the Build ID (e.g. `FE941ED5BA14BE5D` for MK8DX 3.0.5) -- it identifies
 the version across your docs.
 
 Then import into Ghidra once via GUI: `ghidraRun` → **File → New Project**
@@ -206,13 +206,13 @@ SwitchLoader.
 
 - **OSGi**: new Java scripts only load from the user's
   `Extensions/SwitchLoader/ghidra_scripts/`. A stale copy with a hardcoded
-  path there silently hijacks the dump — `rex shards` always overwrites
+  path there silently hijacks the dump -- `rex shards` always overwrites
   with a fresh compiled pair.
-- **`analyzeHeadless` exits 0 even on SCRIPT ERROR** — rex greps the log and
+- **`analyzeHeadless` exits 0 even on SCRIPT ERROR** -- rex greps the log and
   fails for real.
 - **Headless cwd must be neutral** (`/tmp`): OSGi picks the cwd's raw
   `.java` over the compiled pair → `ClassNotFoundException`.
-- **`callers` = 0 ≠ orphan**: may be a `b` tail-call — re-check with a raw
+- **`callers` = 0 ≠ orphan**: may be a `b` tail-call -- re-check with a raw
   BL grep over the asm corpus.
 - **`-scriptPath` is broken** in Ghidra 12.1.2 (OSGi/Felix won't resolve
-  bundles from arbitrary paths) — that's why the install step exists.
+  bundles from arbitrary paths) -- that's why the install step exists.

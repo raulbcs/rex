@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""rex — RE Swiss-army knife (raw binary + corpus).
+"""rex -- RE Swiss-army knife (raw binary + corpus).
 
 Solves the recurring frictions of static analysis:
   rex fn <va>              → which function contains the address
@@ -41,7 +41,7 @@ Solves the recurring frictions of static analysis:
                                the immediate def (orr/and/eor/mov) that produced it
                                (-r filters by VA range)
   rex reloc <va> [-n N] [-b B] → NSO relocation table entries
-                               (R_AARCH64_RELATIVE) from the VA — resolves
+                               (R_AARCH64_RELATIVE) from the VA -- resolves
                                relocatable vtables: addend → function name
   rex reloc -a <va>        → REVERSE: slots receiving this VA as addend
                            (= which vtables have the function as a method)
@@ -49,7 +49,7 @@ Solves the recurring frictions of static analysis:
                                names from MEMORY-MAP.md and curated call notes
                                (function-notes.json). Default: known offsets
                                highlighted [+0x184 = coins clamp 0..10];
-                               unknown offsets stay clean — focus on what's known.
+                               unknown offsets stay clean -- focus on what's known.
   rex ptr <va>            → resolves a pointer in .data/.rodata: reads the qword
                                at the VA and identifies the target (function/
                                vtable/global/string)
@@ -73,7 +73,7 @@ Edge cases: 'fn' WARNS when the VA is in a GAP (dumper-orphan function,
 bounds-check via asm-full insns); 'body' tells mid-function (dumps the
 container) from gap (disassembles in place with 'dis').
 
-Configuration via env > ~/.rexrc (rexconfig.py) — no project paths in code.
+Configuration via env > ~/.rexrc (rexconfig.py) -- no project paths in code.
 Python 3 stdlib only.
 """
 from __future__ import annotations
@@ -85,7 +85,7 @@ import struct
 import sys
 from pathlib import Path
 
-# Config: env > ~/.rexrc — NO project paths in code (rexconfig.py).
+# Config: env > ~/.rexrc -- NO project paths in code (rexconfig.py).
 # ROOT is lazy: only resolves (and requires REX_ROOT) when a command needs data.
 import os
 import rexconfig
@@ -175,7 +175,7 @@ def name_of(va: int) -> str:
 # ---------------------------------------------------------------- NSO segments
 
 def _segments():
-    """[(mem_off, file_off, size)] do NSO (text/ro/data) — cached."""
+    """[(mem_off, file_off, size)] do NSO (text/ro/data) -- cached."""
     d = _DATA
     segs = []
     for off in (0x10, 0x20, 0x30):
@@ -218,7 +218,7 @@ def cmd_fn(va: int) -> None:
         end = _FUNCS_ADDRS[i] if i < len(_FUNCS_ADDRS) else start + (1 << 30)
     if va >= end:
         print(f"WARNING: {va:#x} is in a GAP (after end of {name} @ {start:#x}, "
-              f"size {end - start:#x} — uncatalogued function or data)")
+              f"size {end - start:#x} -- uncatalogued function or data)")
         print(f"  nearest previous function: {name} @ {start:#x} (end {end:#x})")
         return
     print(f"{name} @ {start:#x}  (VA {va:#x} = +{off:#x})")
@@ -229,7 +229,7 @@ def cmd_callers(target: int) -> None:
     d = _DATA
     assert d is not None
     # scans .text only (literal pools in .rodata/.data and inter-function padding
-    # decode as spurious BL — a historical callers false-positive)
+    # decode as spurious BL -- a historical callers false-positive)
     tm, tf, ts = struct.unpack_from("<III", d, 0x10)
     end = min(tf + ts, len(d)) & ~3
     hits: list[int] = []
@@ -243,7 +243,7 @@ def cmd_callers(target: int) -> None:
                 imm -= 0x4000000
             if src + (imm << 2) == target:
                 # bounds-check: BL only counts if src is INSIDE a catalogued
-                # function (not in a post-end gap — that\'s data/literal, not a call)
+                # function (not in a post-end gap -- that\'s data/literal, not a call)
                 if _INSNS:
                     f = fn_of(src)
                     if f and src < f[0] + _INSNS.get(f[0], 0) * 4:
@@ -255,7 +255,7 @@ def cmd_callers(target: int) -> None:
     if not hits:
         msg = f"0 BL callers of {target:#x}"
         if gaps:
-            msg += f"  ({len(gaps)} in GAP discarded — likely literal/data)"
+            msg += f"  ({len(gaps)} in GAP discarded -- likely literal/data)"
         print(msg + " (exit 1)")
         sys.exit(1)
     _load_names()
@@ -271,7 +271,7 @@ def cmd_callers(target: int) -> None:
 
 def _disasm(va: int, n: int) -> list[str]:
     """Disassemble n instructions at va. Capstone (via uv --with) if available;
-    otherwise minimal structural marking (ret/nop/bl/padding) — not decompilation."""
+    otherwise minimal structural marking (ret/nop/bl/padding) -- not decompilation."""
     _load()
     assert _DATA is not None
     d = _DATA
@@ -372,7 +372,7 @@ def _try_note(off: int, line: str, notes: list[str], seen: set[int]) -> None:
     if chosen is None and len(ents) == 1:
         obj, sig, status = ents[0]
         # heuristic owner: mark as candidate (map is incomplete; +0x78 may belong
-        # to another object in the chain) — "?" reminds to confirm the base object
+        # to another object in the chain) -- "?" reminds to confirm the base object
         notes.append(f"+{off:#x}≈{obj.split()[0]}: {sig[:90]}")
         return
     if chosen is not None:
@@ -436,7 +436,7 @@ def _ann_line(line: str) -> str:
             ent = (_GLOBALS or {})[nm]
             val = f" = {ent['value']}" if ent.get("value") else ""
             notes.append(f"{nm}{val}")
-    # enums: comparisons/masks with known value — DISTINCTIVE values only
+    # enums: comparisons/masks with known value -- DISTINCTIVE values only
     # (>=0x10 or multi-bit mask); small 0/1/2... are ubiquitous = noise
     _load_enums()
     ev = _ENUM_VALS or {}
@@ -462,7 +462,7 @@ def cmd_ann(va: int, n_context: int = 0) -> None:
         f = fn_of(va)
         if f and f[0] < va:
             body = idx.load_decomp(f[0])
-            print(f"# {va:#x} mid-function de {f[1]} @ {f[0]:#x} — corpo inteiro anotado")
+            print(f"# {va:#x} mid-function de {f[1]} @ {f[0]:#x} -- corpo inteiro anotado")
         if body is None:
             print(f"body of {va:#x} not found in corpus")
             sys.exit(1)
@@ -507,7 +507,7 @@ def cmd_body(va: int, asm: bool) -> None:
                     print(body)
                     return
             else:
-                print(f"# {va:#x} is in a GAP (after {name} @ {start:#x}, end {end:#x}) — "
+                print(f"# {va:#x} is in a GAP (after {name} @ {start:#x}, end {end:#x}) -- "
                       f"function NOT catalogued by the dumper; disassembling in place:")
                 cmd_dis(va, 64)
                 return
@@ -737,7 +737,7 @@ def _decode_movwide(w: int):
 
 
 def _writes_reg(w: int) -> bool:
-    """Heuristic: word writes Rd (bits 4:0) — excludes branches."""
+    """Heuristic: word writes Rd (bits 4:0) -- excludes branches."""
     if (w & 0x7C000000) in (0x14000000, 0x94000000):     # b / bl
         return False
     if (w & 0x7E000000) in (0x34000000, 0x36000000):     # cbz/cbnz, tbz/tbnz
@@ -857,7 +857,7 @@ _RELOC_KEYS = None       # slots ordenados
 def _relocs():
     """Tabela de relocations do NSO: triplets 0x18 (r_offset, 0x403, addend).
 
-    Contiguous clusters (stride 0x18, ≥2 records) — kills random
+    Contiguous clusters (stride 0x18, ≥2 records) -- kills random
     false-positives in rodata. r_offset/addend are offsets relative to BASE.
     """
     global _RELOC_TABLE, _RELOC_KEYS
@@ -939,12 +939,12 @@ def _inventory_slots(va: int) -> int | None:
 
 
 def _vtable_slots(va: int, max_slots: int = 0) -> list[tuple[int, int]]:
-    """Slots (slot_va, target_va) de uma vtable em va — via relocations.
+    """Slots (slot_va, target_va) de uma vtable em va -- via relocations.
 
     MK8DX vtables are relocated qword arrays: each slot points to a function.
     Tolerates gaps ≤2 slots (Itanium dtor pairs / reserved space).
     Para em: gap ≥3, alvo fora de .text (typeinfo/dado), ou max_slots.
-    Compact regions (no RTTI) have no sharp boundary — use max_slots.
+    Compact regions (no RTTI) have no sharp boundary -- use max_slots.
     """
     if (va, max_slots) in _VT_CACHE:
         return _VT_CACHE[(va, max_slots)]
@@ -1025,7 +1025,7 @@ def cmd_ctor(va: int, json_out: bool = False, list_all: bool = False) -> None:
     """Static ctor chain: holders → vtables installed per field.
 
     MK8DX pattern (found in the KartUnit ctor): the ctor doesn't materialize the
-    vtable com adrp+add — carrega um HOLDER em .data (adrp+ldr PTR_DAT),
+    vtable com adrp+add -- carrega um HOLDER em .data (adrp+ldr PTR_DAT),
     cujo reloc resolve a base do bloco de vtables; add N + str [xN,#imm]
     instala a sub-vtable no campo do objeto.
     """
@@ -1087,7 +1087,7 @@ def cmd_ctor(va: int, json_out: bool = False, list_all: bool = False) -> None:
     reg_nm = _ctor_name_for_va(va)
     if reg_nm:
         ent = (_CTORS or {})[reg_nm]
-        print(f"# {reg_nm}: {ent.get('class', '?')} — fonte: {ent.get('doc', '?')}")
+        print(f"# {reg_nm}: {ent.get('class', '?')} -- fonte: {ent.get('doc', '?')}")
     for sz, t in new_sizes:
         print(f"  new({sz:#x}) -> {t}")
     seen: set[tuple[int, int]] = set()
@@ -1108,14 +1108,14 @@ def cmd_ctor(va: int, json_out: bool = False, list_all: bool = False) -> None:
         named = [f"{t:#x} {nm}" for t, nm in calls if nm and nm != f"FUN_{t:x}"]
         if named:
             print(f"  calls nomeados: {', '.join(named[:8])}")
-    # dtor: NOT mechanically detectable in this binary — the 16
+    # dtor: NOT mechanically detectable in this binary -- the 16
     # operator.delete VAs have ZERO callers in the whole corpus (verified grep,
     # shard-*-asm); deallocation goes through the engine allocator (sead-style),
     # still unidentified. The Itanium convention (slots 0/1) does NOT hold here:
     # KartUnit e BoostController compartilham slots 0/1 (herdados da base
     # pattern) and slot 1 is a lazy-init accessor (__cxa_guard), not D0.
     if not installs and not new_sizes and not calls:
-        print("  (no holder-based installs detected — direct adrp+add?)")
+        print("  (no holder-based installs detected -- direct adrp+add?)")
 
 
 def _get_asm_line_re():
@@ -1152,7 +1152,7 @@ def _ctor_step(mnem: str, ops: str, state, holder_info, installs, calls, new_siz
         return
 
     if mnem == "ldr":
-        # ldr x8,[x8,#imm] — if the base is .data and the reloc resolves, it's a holder
+        # ldr x8,[x8,#imm] -- if the base is .data and the reloc resolves, it's a holder
         mb = _re.search(r"\[([^\]]*)\]", ops)
         if not mb:
             return
@@ -1234,7 +1234,7 @@ def cmd_vtable(va: int, json_out: bool = False, max_slots: int = 0, list_all: bo
     assert _VT_REGISTRY is not None
     if list_all:
         for nm, ent in sorted(_VT_REGISTRY.items()):
-            print(f"  {ent['va']}  {nm}  ({ent.get('class', '?')}) — {ent.get('doc', '?')}")
+            print(f"  {ent['va']}  {nm}  ({ent.get('class', '?')}) -- {ent.get('doc', '?')}")
         return
     # the vtable registry name carries the canonical size
     reg_nm = _vt_name_for_vtable(va)
@@ -1244,12 +1244,12 @@ def cmd_vtable(va: int, json_out: bool = False, max_slots: int = 0, list_all: bo
             max_slots = int(ent["slots"])
     slots = _vtable_slots(va, max_slots)
     if not slots:
-        print(f"no relocations at {va:#x} — not a vtable (or wrong start)")
+        print(f"no relocations at {va:#x} -- not a vtable (or wrong start)")
         sys.exit(1)
-    print(f"# vtable @ {va:#x} — {len(slots)} slots")
+    print(f"# vtable @ {va:#x} -- {len(slots)} slots")
     if reg_nm:
         ent = _VT_REGISTRY[reg_nm]
-        print(f"# {reg_nm}: {ent.get('class', '?')} — fonte: {ent.get('doc', '?')}")
+        print(f"# {reg_nm}: {ent.get('class', '?')} -- fonte: {ent.get('doc', '?')}")
     if json_out:
         import json as _json
         payload = []
@@ -1339,11 +1339,11 @@ def cmd_vtable_callers(va: int, max_slots: int = 0) -> None:
                 max_slots = inv   # fronteira exata do cluster
     slots = _vtable_slots(va, max_slots)
     if not slots:
-        print(f"no relocations at {va:#x} — not a vtable (or wrong start)")
+        print(f"no relocations at {va:#x} -- not a vtable (or wrong start)")
         sys.exit(1)
     blr = _blr_scan()
     _load_names()
-    print(f"# vtable @ {va:#x} — {len(slots)} slots  ({reg_nm or 'unregistered'})")
+    print(f"# vtable @ {va:#x} -- {len(slots)} slots  ({reg_nm or 'unregistered'})")
     # BLR index by offset for fast lookup
     by_off: dict[int, list[tuple[int, str]]] = {}
     for site, reg, off in blr:
@@ -1377,7 +1377,7 @@ def cmd_vtable_callers(va: int, max_slots: int = 0) -> None:
         nm_s = f"  {nm}" if nm else ""
         print(f"\n  [{off:#04x}] target {t:#x}  {name_of(t)}{nm_s}")
         print(f"    BL callers ({len(bls)}): " +
-              (", ".join(f"{b:#x}" for b in bls) if bls else "—"))
+              (", ".join(f"{b:#x}" for b in bls) if bls else "--"))
         if brl:
             print(f"    BLR no offset {off:#x} ({len(brl)} sites, candidatos):")
             for site, reg in brl[:40]:
@@ -1385,7 +1385,7 @@ def cmd_vtable_callers(va: int, max_slots: int = 0) -> None:
             if len(brl) > 40:
                 print(f"      … +{len(brl) - 40} sites")
         else:
-            print(f"    BLR no offset {off:#x}: —")
+            print(f"    BLR no offset {off:#x}: --")
 
 
 def cmd_blr(va: int, list_all: bool = False) -> None:
@@ -1408,7 +1408,7 @@ def cmd_blr(va: int, list_all: bool = False) -> None:
     assert _VT_REGISTRY is not None
     print(f"# BLR @ {site:#x}  blr {reg}   {name_of(site)}")
     if off is None:
-        print("# no self-referential ldr in the window — not a classic vtable dispatch "
+        print("# no self-referential ldr in the window -- not a classic vtable dispatch "
               "(or a function pointer)")
         return
     print(f"# slot-offset {off:#x}")
@@ -1451,7 +1451,7 @@ def cmd_reloc(va: int, n: int = 16, back: int = 0, reverse: bool = False) -> Non
         print(f"# sem relocations a partir de {va:#x}")
         return
     if m not in table:
-        print(f"# WARNING: {va:#x} is not a relocated slot — dumping from the next one")
+        print(f"# WARNING: {va:#x} is not a relocated slot -- dumping from the next one")
     shown = 0
     while i < len(keys) and shown < n:
         slot = keys[i]
@@ -1461,7 +1461,7 @@ def cmd_reloc(va: int, n: int = 16, back: int = 0, reverse: bool = False) -> Non
         i += 1
         shown += 1
     print(f"# {shown} relocations (R_AARCH64_RELATIVE) de {va:#x} em diante"
-          f" — tabela total {len(table)} slots")
+          f" -- tabela total {len(table)} slots")
 
 
 _NAMES: dict[str, str] | None = None   # nome curto -> VA (hex, sem 0x)
@@ -1711,7 +1711,7 @@ def cmd_ptr(va: int) -> None:
     holder = (_GLOBALS_R or {}).get(f"{va:x}")
     print(f"# {holder or 'PTR_DAT_' + f'{va:x}'} @ {va:#x} = {val:#x}")
     if val >= 0x2000000:
-        print(f"  (absolute value, not an NSO offset — not a relative pointer)")
+        print(f"  (absolute value, not an NSO offset -- not a relative pointer)")
         return
     tgt = BASE + val
     f = fn_of(tgt)
@@ -1746,7 +1746,7 @@ def cmd_ptr(va: int) -> None:
         if s and all(32 <= b < 127 for b in s):
             print(f"  → {tgt:#x}  string {s.decode()!r}")
             return
-    print(f"  → {tgt:#x}  (unidentified — check with rodata/dis)")
+    print(f"  → {tgt:#x}  (unidentified -- check with rodata/dis)")
 
 
 def cmd_xref(va: int, limit: int = 200) -> None:
@@ -1791,7 +1791,7 @@ _HEADERS: object = False   # False=not loaded, None=unavailable, HeadersDB=ok
 
 
 def _load_headers() -> None:
-    """HeadersDB of .hpp headers — config REX_HEADERS (env > ~/.rexrc)."""
+    """HeadersDB of .hpp headers -- config REX_HEADERS (env > ~/.rexrc)."""
     global _HEADERS
     if _HEADERS is not False:
         return
@@ -1809,11 +1809,11 @@ def _load_headers() -> None:
 
 
 def cmd_headers(query: str) -> None:
-    """`rex headers <offset>` — quem tem campo nesse offset (todas as structs);
-    `rex headers <StructName>` — dump da struct (campos + offsets)."""
+    """`rex headers <offset>` -- quem tem campo nesse offset (todas as structs);
+    `rex headers <StructName>` -- dump da struct (campos + offsets)."""
     _load_headers()
     if _HEADERS is None:
-        sys.exit("ERROR: headers not found — set REX_HEADERS (include/ dir)")
+        sys.exit("ERROR: headers not found -- set REX_HEADERS (include/ dir)")
     db = _HEADERS
     if query.startswith(("0x", "+0x")) or query.lstrip("0x7100").isdigit() is False and re.fullmatch(r"[0-9a-fA-F]+", query):
         try:
@@ -1832,7 +1832,7 @@ def cmd_headers(query: str) -> None:
     s = db.structs.get(query)
     if not s:
         near = [n for n in db.structs if query.lower() in n.lower()][:8]
-        print(f"struct not found: {query}" + (f" — parecidas: {', '.join(near)}" if near else ""))
+        print(f"struct not found: {query}" + (f" -- parecidas: {', '.join(near)}" if near else ""))
         sys.exit(1)
     print(f"== {s.name}  ({Path(s.file).name}; {len(s.fields)} campos)")
     for f in s.fields:
@@ -1856,13 +1856,13 @@ def cmd_fn_range(lo: int, hi: int) -> None:
 # ------------------------------------------------------------- shards (generation)
 
 def cmd_shards(target: str = "all", force: bool = False) -> None:
-    """Generates the corpus (shards) via Ghidra headless — the whole recipe.
+    """Generates the corpus (shards) via Ghidra headless -- the whole recipe.
 
     Steps:
       1. clears the OSGi cache (ClassNotFoundException on modified scripts)
       2. compiles the dumpers ($REX_DUMPERS/*.java) with Ghidra's classpath
       3. installs .java+.class into the user's Extensions/SwitchLoader/
-         ghidra_scripts — the only place OSGi resolves these scripts' bundle
+         ghidra_scripts -- the only place OSGi resolves these scripts' bundle
          (builtin and ~/ghidra_scripts give ClassNotFoundException; the
          historical dumps always ran from here)
       4. runs analyzeHeadless -noanalysis -postScript (NEUTRAL cwd = /tmp) and
@@ -1872,7 +1872,7 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
     Output in $REX_ROOT/data/{decomp,asm}-full/.
 
     `target`: all | decomp | asm. `force`: ignores existing outputs
-    (decomp has RESUME — without force, only completes missing ones).
+    (decomp has RESUME -- without force, only completes missing ones).
 
     Config (env > ~/.rexrc; see rexconfig.py): REX_ROOT, REX_DUMPERS
     (default $REX_ROOT/dumpers), REX_GHIDRA_PROJ (default
@@ -1894,7 +1894,7 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
     else:
         gens = _root() / "dumpers"
         if not (gens / "FullDecompDump.java").exists():
-            sys.exit("ERROR: dumpers/ not found in $REX_ROOT — set REX_DUMPERS "
+            sys.exit("ERROR: dumpers/ not found in $REX_ROOT -- set REX_DUMPERS "
                      "(dir com FullDecompDump.java).")
 
     # defaults do ambiente local (Ghidra via Homebrew)
@@ -1905,7 +1905,7 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
     ]
     ghidra = next((Path(p) for p in ghidra_cand if p and Path(p).exists()), None)
     if ghidra is None:
-        sys.exit("ERROR: Ghidra not found — set GHIDRA_HOME (e.g. /opt/homebrew/Cellar/ghidra/12.1.2/libexec)")
+        sys.exit("ERROR: Ghidra not found -- set GHIDRA_HOME (e.g. /opt/homebrew/Cellar/ghidra/12.1.2/libexec)")
     # projeto Ghidra: default = $REX_ROOT/ghidra-project; env separado p/
     # override (ex.: REX_ROOT scratch + projeto existente do repo principal)
     gpr = _cfg("REX_GPR", "MK8DX.gpr")
@@ -1917,7 +1917,7 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
     else:
         proj = _root() / "ghidra-project"
         if not (proj / gpr).exists():
-            sys.exit(f"ERROR: Ghidra project not found — set REX_GHIDRA_PROJ "
+            sys.exit(f"ERROR: Ghidra project not found -- set REX_GHIDRA_PROJ "
                      f"(dir com {gpr}; default = $REX_ROOT/ghidra-project).")
     builtin = ghidra / "Ghidra" / "Features" / "Decompiler" / "ghidra_scripts"
     if not builtin.is_dir():
@@ -1944,7 +1944,7 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
             sys.exit(f"ERROR: dumper not found: {src}")
         tsv = outdir / "functions.tsv"
         if resume_ok and tsv.exists() and not force:
-            print(f"# {cls}: RESUME — functions.tsv exists; completing missing ones")
+            print(f"# {cls}: RESUME -- functions.tsv exists; completing missing ones")
         print(f"== {cls} → {outdir}")
         # 1. fantasmas + cache OSGi
         _osgiclear(cls)
@@ -1956,7 +1956,7 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
             capture_output=True, text=True)
         if r.returncode != 0:
             sys.exit(f"ERROR javac {cls}:\n{r.stdout}{r.stderr}")
-        # 3. install into the user's Extensions/SwitchLoader/ghidra_scripts —
+        # 3. install into the user's Extensions/SwitchLoader/ghidra_scripts --
         #    the ONLY place OSGi resolves the bundle for these scripts in this setup
         #    (builtin e ~/ghidra_scripts → ClassNotFoundException; os dumps
         #    historical dumps ran from here). Overwriting with a fresh copy
@@ -1965,7 +1965,7 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
             "ghidra_*/Extensions/SwitchLoader/ghidra_scripts"))
         if not ext_dirs:
             sys.exit("ERROR: ~/Library/ghidra/ghidra_*/Extensions/SwitchLoader/"
-                     "ghidra_scripts does not exist — install the SwitchLoader "
+                     "ghidra_scripts does not exist -- install the SwitchLoader "
                      "extension or create the dir.")
         ext = ext_dirs[-1]
         shutil.copy(src, ext / src.name)
