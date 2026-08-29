@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """Resolve functions from the corpus: address/name → shard, decomp/asm body.
 
-Two independent corpora with distinct shard numbering:
-  - decomp-full/: 500 functions/shard, 69 shards (shard-000..shard-068)
-  - asm-full/:   1000 functions/shard, 35 shards (shard-000..shard-034)
+Two corpora, SAME numbering (a hard requirement of resolve_both):
+  - decomp-full/: C pseudocode, 500 functions/shard
+  - asm-full/:    listing,      500 functions/shard
 
-Project docs use DECOMP shard numbers by default.
-Known exceptions (asm): FUN_710012792c (CoinGet effect) documented as
-shard-002 = asm shard-002 (correct decomp = shard-004).
+Both are produced by `rex shards` (FullDecompDump + FullAsmDump, SHARD=500
+in both), so shard-N and the functions.tsv row order match across corpora.
 
 Usage:
     from shard_resolve import ShardIndex
