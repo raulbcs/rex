@@ -85,7 +85,7 @@ HDR = 0x100            # text file offset = VA - BASE + HDR
 _DATA = None
 TSV = None            # setado no _load() (depende de REX_ROOT)
 ASM_TSV = None        # idem
-BASE = int(_cfg("REX_BASE", "0x7100000000"), 16)   # VA base do NSO (config)
+BASE = int(_cfg("REX_BASE", "0x7100000000"), 16)   # NSO VA base (config)
 _FUNCS = None         # list[(addr, name)] sorted
 _FUNCS_ADDRS = None   # list[int] sorted, paralelo a _FUNCS
 _INSNS = None         # addr -> n. of instructions (asm-full; exact size)
@@ -436,7 +436,7 @@ def cmd_ann(va: int, n_context: int = 0) -> None:
         f = fn_of(va)
         if f and f[0] < va:
             body = idx.load_decomp(f[0])
-            print(f"# {va:#x} mid-function de {f[1]} @ {f[0]:#x} -- corpo inteiro anotado")
+            print(f"# {va:#x} mid-function of {f[1]} @ {f[0]:#x} -- full body annotated")
         if body is None:
             print(f"body of {va:#x} not found in corpus")
             sys.exit(1)
@@ -656,7 +656,7 @@ def cmd_offset(imm: int, load: bool, msub: str | None = None,
     if rng:
         extra.append(f"range {rng[0]:#x}..{rng[1]:#x}")
     if total and count != total:
-        extra.append(f"{total - count} fora do filtro")
+        extra.append(f"{total - count} outside the filter")
     print(f"# {count}/{total} {kind} de #{imm:#x}"
           + (f"  ({'; '.join(extra)})" if extra else "")
           + (f"  [{detail}]" if detail else ""))
@@ -696,7 +696,7 @@ def _decode_logimm(w: int):
 
 
 def _decode_movwide(w: int):
-    """MOVZ/MOVN/MOVK → (nome, val_16bits, lane_hw, rd, sf) ou None."""
+    """MOVZ/MOVN/MOVK → (name, val_16bits, lane_hw, rd, sf) or None."""
     if ((w >> 23) & 0x3F) != 0b100101:
         return None
     sf = (w >> 31) & 1
@@ -729,7 +729,7 @@ def _def_verdict(w: int, rt: str, bit: int):
             return "no", None
         if mi["rt"] == rt:
             return ("def", "loaded from memory (ldr)") if mi["mnem"][:2] == "ld" else ("no", None)
-        return "no", None                               # mem op n define rt
+        return "no", None                               # mem op doesn't define rt
     li = _decode_logimm(w)
     if li:
         name, mask, rd, sf = li
@@ -819,7 +819,7 @@ def cmd_bit(imm: int, bit: int, rng: tuple[int, int] | None = None) -> None:
               f"  <{name_of(va)}>{where}  → {verdict}")
     print(f"# {n} stores de #{imm:#x} cobrem bit {bit}: "
           + (", ".join(f"{v} ×{c}" for v, c in sorted(stats.items(), key=lambda kv: -kv[1]))
-             or "nenhum"))
+             or "none"))
 
 
 # ---------------------------------------------------------------- relocations
@@ -865,7 +865,7 @@ def _relocs():
         k = j
         while k + 1 < len(recs) and recs[k + 1][0] - recs[k][0] == 3:  # 3 qwords = 0x18 B
             k += 1
-        if k > j:                      # cluster ≥2: tabela real
+        if k > j:                      # cluster ≥2: a real table
             for _, s, a in recs[j:k + 1]:
                 table[s] = a
         j = k + 1
@@ -1104,10 +1104,10 @@ _ASM_LINE_RE = None
 _ASM_LINE: list = []
 
 def _ctor_step(mnem: str, ops: str, state, holder_info, installs, calls, new_sizes, tbl, vt_by_va, this_regs) -> None:
-    """Um passo do tracker de ctor sobre uma linha de asm.
+    """One step of the ctor tracker over an asm line.
 
     state: reg->VA; holder_info: reg->(holder_va, reloc_alvo); this_regs: regs
-    que recebem o ponteiro do objeto (x0-x3 na entrada + callee-saveds que
+    receiving the object pointer (x0-x3 on entry + callee-saveds that
     receive a copy of it). Install = store of holder-value into [this,#imm].
     """
     import re as _re
@@ -1310,7 +1310,7 @@ def cmd_vtable_callers(va: int, max_slots: int = 0) -> None:
         else:
             inv = _inventory_slots(va)
             if inv:
-                max_slots = inv   # fronteira exata do cluster
+                max_slots = inv   # exact cluster boundary
     slots = _vtable_slots(va, max_slots)
     if not slots:
         print(f"no relocations at {va:#x} -- not a vtable (or wrong start)")
@@ -1399,7 +1399,7 @@ def cmd_blr(va: int, list_all: bool = False) -> None:
             ent = _VT_REGISTRY[nm]
             print(f"  {nm:<26} {vva:#x}  {ent.get('class','')[:48]}")
     else:
-        print(f"# nenhuma vtable curada tem slot em {off:#x} "
+        print(f"# no curated vtable has a slot at {off:#x} "
               "(shared generic offset or unregistered vtable)")
 
 
@@ -1410,7 +1410,7 @@ def cmd_reloc(va: int, n: int = 16, back: int = 0, reverse: bool = False) -> Non
         needle = va - BASE
         hits = [(s, a) for s, a in table.items() if a == needle]
         if not hits:
-            print(f"# nenhum slot de relocation recebe {va:#x} como addend "
+            print(f"# no relocation slot receives {va:#x} as addend "
                   f"({len(table)} slots indexados)")
             return
         for slot, _ in sorted(hits):
@@ -1435,7 +1435,7 @@ def cmd_reloc(va: int, n: int = 16, back: int = 0, reverse: bool = False) -> Non
         i += 1
         shown += 1
     print(f"# {shown} relocations (R_AARCH64_RELATIVE) de {va:#x} em diante"
-          f" -- tabela total {len(table)} slots")
+          f" -- table totals {len(table)} slots")
 
 
 _NAMES: dict[str, str] | None = None   # nome curto -> VA (hex, sem 0x)
@@ -1783,7 +1783,7 @@ def _load_headers() -> None:
 
 
 def cmd_headers(query: str) -> None:
-    """`rex headers <offset>` -- quem tem campo nesse offset (todas as structs);
+    """`rex headers <offset>` -- which structs have a field at this offset;
     `rex headers <StructName>` -- dump da struct (campos + offsets)."""
     _load_headers()
     if _HEADERS is None:
@@ -1921,7 +1921,7 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
         print(f"== {cls} → {outdir}")
         # 1. fantasmas + cache OSGi
         _osgiclear(cls)
-        # 2. compilar (classpath = todos os JARs do Ghidra)
+        # 2. compile (classpath = all of Ghidra's JARs)
         build = Path(tempfile.mkdtemp(prefix="rex_shards_"))
         jars = ":".join(sorted(str(p) for p in ghidra.rglob("*.jar")))
         r = subprocess.run(
