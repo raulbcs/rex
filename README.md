@@ -124,9 +124,10 @@ Every command that takes a VA also takes a short name (`rex ann DriftCalc`).
 - **`~/.rexrc`** -- all config lives there (or env vars, which win). Keys and
   defaults: `rexconfig.py`. The one required key is `REX_ROOT`.
 - **Annotations** -- the more you feed it, the smarter `ann` gets: a
-  `notes/MEMORY-MAP.md` with offset owners, `data/*.json` registries (short
-  names, globals, enums, vtables), and `REX_HEADERS` pointing at C++ headers
-  with offset comments (MK8DX-Headers style).
+  `notes/MEMORY-MAP.md` mapping struct offsets to meanings (any project's
+  notes work -- rex only parses the table format), `data/*.json` registries
+  (short names, globals, enums, vtables), and `REX_HEADERS` pointing at any
+  C++ headers that carry `//0xNN` offset comments.
 - **Config is law** -- if you set something and it's invalid, rex errors out
   immediately instead of silently falling back.
 

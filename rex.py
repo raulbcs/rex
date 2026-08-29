@@ -1876,7 +1876,7 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
 
     Config (env > ~/.rexrc; see rexconfig.py): REX_ROOT, REX_DUMPERS
     (default $REX_ROOT/dumpers), REX_GHIDRA_PROJ (default
-    $REX_ROOT/ghidra-project), REX_GPR (default MK8DX.gpr), REX_PROGRAM
+    $REX_ROOT/ghidra-project), REX_GPR (default: first .gpr in the project dir), REX_PROGRAM
     (default uncompressed_main), GHIDRA_HOME.
     """
     import glob as _glob
@@ -1895,7 +1895,7 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
         gens = _root() / "dumpers"
         if not (gens / "FullDecompDump.java").exists():
             sys.exit("ERROR: dumpers/ not found in $REX_ROOT -- set REX_DUMPERS "
-                     "(dir com FullDecompDump.java).")
+                     "(dir with FullDecompDump.java).")
 
     # defaults do ambiente local (Ghidra via Homebrew)
     ghidra_cand = [
@@ -1906,19 +1906,18 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
     ghidra = next((Path(p) for p in ghidra_cand if p and Path(p).exists()), None)
     if ghidra is None:
         sys.exit("ERROR: Ghidra not found -- set GHIDRA_HOME (e.g. /opt/homebrew/Cellar/ghidra/12.1.2/libexec)")
-    # projeto Ghidra: default = $REX_ROOT/ghidra-project; env separado p/
-    # override (ex.: REX_ROOT scratch + projeto existente do repo principal)
-    gpr = _cfg("REX_GPR", "MK8DX.gpr")
+    # Ghidra project: default = $REX_ROOT/ghidra-project; REX_GPR names the
+    # .gpr file (default: auto-discover the first .gpr in the project dir)
+    gpr = _cfg("REX_GPR", "")
     proj_env = _cfg("REX_GHIDRA_PROJ", "")
-    if proj_env:
-        proj = Path(proj_env).expanduser()
-        if not (proj / gpr).exists():
-            sys.exit(f"ERROR: REX_GHIDRA_PROJ={proj} has no {gpr}")
-    else:
-        proj = _root() / "ghidra-project"
-        if not (proj / gpr).exists():
-            sys.exit(f"ERROR: Ghidra project not found -- set REX_GHIDRA_PROJ "
-                     f"(dir com {gpr}; default = $REX_ROOT/ghidra-project).")
+    proj = Path(proj_env).expanduser() if proj_env else _root() / "ghidra-project"
+    if not gpr:
+        found = sorted(proj.glob("*.gpr")) if proj.is_dir() else []
+        if not found:
+            sys.exit(f"ERROR: no .gpr found in {proj} -- set REX_GHIDRA_PROJ/REX_GPR")
+        gpr = found[0].name
+    if not (proj / gpr).exists():
+        sys.exit(f"ERROR: {proj / gpr} not found -- set REX_GHIDRA_PROJ/REX_GPR")
     builtin = ghidra / "Ghidra" / "Features" / "Decompiler" / "ghidra_scripts"
     if not builtin.is_dir():
         sys.exit(f"ERROR: builtin dir does not exist: {builtin}")

@@ -28,7 +28,7 @@ error, no silent fallback.
 | `REX_BIN` | `main-binary/uncompressed_main` | raw binary, relative to ROOT |
 | `REX_DUMPERS` | `$REX_ROOT/dumpers` | dir with the dump `.java` files |
 | `REX_GHIDRA_PROJ` | `$REX_ROOT/ghidra-project` | Ghidra project dir |
-| `REX_GPR` | `MK8DX.gpr` | project file name inside it |
+| `REX_GPR` | first `.gpr` found in the project dir | project file name inside it |
 | `REX_PROGRAM` | `uncompressed_main` | program name inside the Ghidra project |
 | `REX_BASE` | `0x7100000000` | NSO VA base |
 | `REX_HEADERS` | -- | headers `include/` dir (see below) |
@@ -39,7 +39,7 @@ error, no silent fallback.
 ```
 <target>/                      ← REX_ROOT
   main-binary/uncompressed_main    raw binary (REX_BIN)
-  ghidra-project/MK8DX.gpr         Ghidra project (REX_GHIDRA_PROJ/REX_GPR)
+  ghidra-project/<name>.gpr          Ghidra project (REX_GHIDRA_PROJ/REX_GPR)
   dumpers/*.java                   FullDecompDump/FullAsmDump (REX_DUMPERS)
   data/decomp-full/                ← generated: shards + functions.tsv
   data/asm-full/                   ← generated: shards + functions.tsv
