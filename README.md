@@ -4,10 +4,36 @@
 `rex fn`, `rex ann`, `rex xref` -- reverse engineering, one question at a
 time. (The dinosaur is the mascot. Rawr.)
 
-> **Educational purposes only.** Personal study of reverse engineering on
-> games I own. Not affiliated with or endorsed by any rights holder. No
-> copyrighted assets (game code, keys, dumps) are or will be hosted here --
-> the repo contains only original analysis tooling.
+```
+$ rex callers PlayerAdd
+  0x710018a9b8  InputUpdate+0x644
+  0x71002631b0  FUN_71002630ec+0xc4
+  ...
+$ rex headers 0x1e4
+  Player         +0x01e4  uint32_t  mCoins
+```
+
+## Start here
+
+Already have a Ghidra project with the game binary analyzed? Do this now
+(about 10 minutes, most of it waiting):
+
+```bash
+# 1. point rex at your target (~1 min)
+echo 'REX_ROOT=/path/to/target' >> ~/.rexrc
+cp -r ~/rex/dumpers <target>/
+
+# 2. generate the corpus (~7 min first run, unattended)
+uv run python ~/rex/rex.py shards
+
+# 3. ask your first question (~1 min)
+uv run python ~/rex/rex.py fn 0x7100176474
+```
+
+No Ghidra project yet? Jump to [New project, from zero](#new-project-from-zero)
+(about an hour, mostly Ghidra's import analysis running on its own).
+
+## What rex is
 
 Static-analysis toolkit for Switch games (NSO binaries): raw binary + Ghidra
 corpus + C++ headers, queried through one CLI.
@@ -21,32 +47,20 @@ Ask it things like *which function contains this address*, *who calls it*,
 Ghidra again. It also **generates the corpus** (decomp + asm dumps of every
 function) from an existing Ghidra project.
 
-```
-$ rex callers PlayerAdd
-  0x710018a9b8  InputUpdate+0x644
-  0x71002631b0  FUN_71002630ec+0xc4
-  ...
-$ rex headers 0x1e4
-  Player         +0x01e4  uint32_t  mCoins
-```
-
-## Quickstart
+## What to query
 
 ```bash
-# 1. point rex at your target (once)
-echo 'REX_ROOT=/path/to/target' >> ~/.rexrc
-
-# 2. generate the corpus from your Ghidra project (~7 min the first time)
-uv run python ~/rex/rex.py shards
-
-# 3. analyze
-uv run python ~/rex/rex.py fn 0x7100176474     # what function is this?
-uv run python ~/rex/rex.py ann 0x7100174778    # annotated decomp
+rex fn 0x7100176474          # which function contains this VA
+rex body <va> [-a]           # decomp (or asm) body
+rex ann <va>                 # body + semantic annotations  <-- use this first
+rex callers <va|name>        # all BL callers
+rex offset 0x1e4 -w          # who writes to this struct offset
+rex vtable <va|name>         # dump a vtable (via relocations)
+rex xref <va|name>           # every reference in the corpus
+rex headers 0x1e4            # which struct has a field here (C++ headers)
 ```
 
-Prerequisites for step 2: a Ghidra project with the game binary already
-imported and analyzed (one-time, via GUI -- see below), plus `uv`, `javac`,
-and Ghidra 12.x installed.
+Every command that takes a VA also takes a short name (`rex ann PlayerMove`).
 
 ## Dependencies
 
@@ -70,7 +84,7 @@ Who invokes what:
 - **hactool is never called by rex** -- you run it yourself, once, to
   produce the binary.
 
-Setup (one-time):
+Setup (one-time, about 20 minutes excluding downloads):
 
 ```bash
 # 1. Ghidra 12.x + JDK 21
@@ -78,8 +92,7 @@ Setup (one-time):
 #    macOS shortcut: brew install ghidra openjdk@21
 #    (Homebrew path: /opt/homebrew/Cellar/ghidra/<ver>/libexec)
 
-# 2. SwitchLoader extension -- clone & build against your Ghidra
-#    (needs JDK 21 and the gradle wrapper; works on any OS):
+# 2. SwitchLoader extension -- clone & build against your Ghidra (~5 min):
 git clone https://github.com/borntohonk/Ghidra-Switch-Loader
 cd Ghidra-Switch-Loader
 git checkout 2c9357f        # commit validated with Ghidra 12.1.2
@@ -103,9 +116,10 @@ only needed to compile hactool from source.
 
 ## New project, from zero
 
-**1. Get the binary.**
+Three prerequisites, then four steps. Total: about an hour, most of it
+Ghidra analyzing on its own.
 
-You need three things:
+**1. Get the binary** (~10 min). You need three things:
 
 - Your **game dump**. The update NSP is enough -- it always contains the
   newest code (a base-game dump would only have day-one code).
@@ -128,10 +142,9 @@ hactool -t nso main-binary/main --uncompressed=main-binary/uncompressed_main
 Note the **Build ID** hactool prints -- it identifies the exact game version
 across all your notes and registries.
 
-**2. Import into Ghidra (one time, via GUI).**
-
-Headless can't load the SwitchLoader extension on its own, so the first
-import is manual. Only once -- after this, everything runs headless.
+**2. Import into Ghidra** (~30 min, mostly unattended). One time, via GUI --
+headless can't load the SwitchLoader extension on its own. After this,
+everything runs headless.
 
 1. Launch Ghidra: `ghidraRun`
 2. Create the project: **File → New Project → Non-Shared Project**
@@ -142,11 +155,10 @@ import is manual. Only once -- after this, everything runs headless.
    - Don't see that format in the list? SwitchLoader isn't installed --
      go back to Dependencies.
 4. Analyze: accept the defaults, additionally enable the **Switch IPC**
-   analyzer, and let it run. Analysis time scales with binary size --
-   a big title can take half an hour or more.
+   analyzer, and let it run.
 5. Save the project.
 
-**3. Lay out the target.**
+**3. Lay out the target** (~2 min):
 
 ```bash
 mkdir -p <target>/ghidra-project <target>/main-binary
@@ -165,23 +177,14 @@ Which gives you:
 
 This whole directory is what `REX_ROOT` points to.
 
-**4. Configure & generate.** Put `REX_ROOT` in `~/.rexrc` (or export it),
-then `rex shards`. Done -- everything else is reading.
-
-## What to query
+**4. Configure & generate** (~7 min, unattended):
 
 ```bash
-rex fn 0x7100176474          # which function contains this VA
-rex body <va> [-a]           # decomp (or asm) body
-rex ann <va>                 # body + semantic annotations  ← use this first
-rex callers <va|name>        # all BL callers
-rex offset 0x1e4 -w          # who writes to this struct offset
-rex vtable <va|name>         # dump a vtable (via relocations)
-rex xref <va|name>           # every reference in the corpus
-rex headers 0x1e4            # which struct has a field here (C++ headers)
+echo 'REX_ROOT=/path/to/target' >> ~/.rexrc
+uv run python ~/rex/rex.py shards
 ```
 
-Every command that takes a VA also takes a short name (`rex ann PlayerMove`).
+Done. Everything else is reading.
 
 ## Making it yours
 
@@ -192,26 +195,27 @@ Every command that takes a VA also takes a short name (`rex ann PlayerMove`).
   notes work -- rex only parses the table format), `data/*.json` registries
   (short names, globals, enums, vtables), and `REX_HEADERS` pointing at any
   C++ headers that carry `//0xNN` offset comments.
-- **Where does the knowledge come from?** From you, via rex itself. On day
-  one, `ann` shows bare `FUN_7100...` and raw offsets -- that's normal; the
-  binary ships stripped (no symbols, no RTTI). The workflow is a loop:
-
-  1. **Ask** -- `rex body` / `rex callers` / `rex offset` / `rex vtable`
-     give you the raw material: who calls what, who writes where.
-  2. **Conclude** -- you establish an identity ("this vtable belongs to the
-     player class", "+0x1e4 is the drift counter").
-  3. **Record** -- write it into the registries: one line in
-     `function-names.json` (a short name), one row in `MEMORY-MAP.md`
-     (an offset meaning), one entry in `vtables.json`.
-  4. **Reap** -- next `rex ann` shows your names instead of raw hex,
-     which makes the *next* conclusion easier. Knowledge compounds.
-
-  If a community-maintained registry exists for your game (like
-  [MK8DX-Headers](https://github.com/raulbcs/MK8DX-Headers) with struct
-  offsets and vtables), drop it in and you start from step 2 instead of
-  step 1.
 - **Config is law** -- if you set something and it's invalid, rex errors out
   immediately instead of silently falling back.
+
+## The knowledge loop
+
+On day one, `ann` shows bare `FUN_7100...` and raw offsets. That's normal:
+the binary ships stripped (no symbols, no RTTI). The knowledge comes from
+you, via rex itself:
+
+1. **Ask** -- `rex body` / `rex callers` / `rex offset` / `rex vtable` give
+   you the raw material: who calls what, who writes where.
+2. **Conclude** -- you establish an identity ("this vtable belongs to the
+   player class", "+0x1e4 is the drift counter").
+3. **Record** -- one line in `function-names.json` (a short name), one row
+   in `MEMORY-MAP.md` (an offset meaning), one entry in `vtables.json`.
+4. **Reap** -- next `rex ann` shows your names instead of raw hex, which
+   makes the *next* conclusion easier. Knowledge compounds.
+
+Shortcut: if a community-maintained registry exists for your game (like
+[MK8DX-Headers](https://github.com/raulbcs/MK8DX-Headers) with struct
+offsets and vtables), drop it in and start from step 2.
 
 Deep reference -- every command, registry file formats, badge legend, and the
 gotchas (OSGi cache, lying headless exit codes) -- lives in
@@ -219,9 +223,12 @@ gotchas (OSGi cache, lying headless exit codes) -- lives in
 
 ## Legal
 
-This repository contains **no Nintendo assets** -- no game code, no keys, no
-dumps; only original analysis tooling. To use it you are expected to **own
-the game** and dump **your own console's keys and your own copy** (e.g. via
-Lockpick_RCM). Do not ask for or share copyrighted material here. This
-project is not affiliated with or endorsed by Nintendo; it exists for
-interoperability research and personal study.
+> **Educational purposes only.** Personal study of reverse engineering on
+> games I own. Not affiliated with or endorsed by any rights holder. No
+> copyrighted assets (game code, keys, dumps) are or will be hosted here --
+> the repo contains only original analysis tooling.
+
+This repository contains **no Nintendo assets**. To use it you are expected
+to **own the game** and dump **your own console's keys and your own copy**
+(e.g. via Lockpick_RCM). Do not ask for or share copyrighted material here.
+It exists for interoperability research and personal study.
