@@ -87,23 +87,41 @@ hactool -k prod.keys --titlekey <TITLEKEY> -t nca --exefsdir main-binary/
 hactool -t nso main-binary/main --uncompressed=main-binary/uncompressed_main
 ```
 
-**2. Import into Ghidra (once, GUI).** `ghidraRun` → **File → New Project**
-(non-shared) at `<target>/ghidra-project/` → then **File → Import File** →
-`uncompressed_main` → format **Nintendo Switch Binary** (from SwitchLoader;
-if it's not in the format list, the extension isn't installed -- see
-Dependencies) → keep default analyzers + enable **Switch IPC** → let it run
-(~30 min for a 19MB NSO) → save. Headless can't load the extension on its
-own, so this step is manual -- but only once.
+**2. Import into Ghidra (one time, via GUI).**
+
+Headless can't load the SwitchLoader extension on its own, so the first
+import is manual. Only once -- after this, everything runs headless.
+
+1. Launch Ghidra: `ghidraRun`
+2. Create the project: **File → New Project → Non-Shared Project**
+   - Project directory: `<target>/ghidra-project/`
+   - Project name: anything (e.g. `game`)
+3. Import the binary: **File → Import File** → `uncompressed_main`
+   - Format: **Nintendo Switch Binary**
+   - Don't see that format in the list? SwitchLoader isn't installed --
+     go back to Dependencies.
+4. Analyze: accept the defaults, additionally enable the **Switch IPC**
+   analyzer, and let it run. Expect roughly 30 minutes for a 19 MB NSO.
+5. Save the project.
 
 **3. Lay out the target.**
 
+```bash
+mkdir -p <target>/ghidra-project <target>/main-binary
+cp -r ~/rex/dumpers <target>/
 ```
-<target>/                          ← this is REX_ROOT
-  main-binary/uncompressed_main
-  ghidra-project/                  ← from step 2
-  dumpers/                         ← cp -r ~/rex/dumpers .
-  data/                            ← generated (shards land here)
+
+Which gives you:
+
 ```
+<target>/
+  main-binary/uncompressed_main    # the raw binary (step 1)
+  ghidra-project/                  # the Ghidra project (step 2)
+  dumpers/                         # the corpus dumpers (copied from rex)
+  data/                            # created by rex shards
+```
+
+This whole directory is what `REX_ROOT` points to.
 
 **4. Configure & generate.** Put `REX_ROOT` in `~/.rexrc` (or export it),
 then `rex shards`. Done -- everything else is reading.
