@@ -1,5 +1,8 @@
 # rex
 
+**rex** -- short for **RE eXplorer**, a reverse-engineering explorer. Named
+to be typed a hundred times a day.
+
 > **Educational purposes only.** Personal study of reverse engineering on
 > games I own. Not affiliated with or endorsed by any rights holder. No
 > copyrighted assets (game code, keys, dumps) are or will be hosted here --
