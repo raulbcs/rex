@@ -58,6 +58,18 @@ and Ghidra 12.x installed.
 | **uv** | any recent | runs rex (`uv run python`) |
 | hactool / nstool | hactool 1.x (same author's [fork](https://github.com/borntohonk/hactool), builds on macOS) or nstool 1.9.2 | one-time extraction: game dump → NCA → ExeFS → decompressed NSO (needs `prod.keys`/`title.keys` from your console) |
 
+Who invokes what:
+
+- **rex itself is pure stdlib Python** -- `uv` is just the runner convention.
+- **rex only ever spawns two external tools**, and only during `rex shards`:
+  `javac` (to compile the dumpers) and Ghidra's `analyzeHeadless` (to run them).
+- **SwitchLoader is loaded by Ghidra, not by rex** -- it's needed at the
+  one-time GUI import. rex merely borrows the extension's `ghidra_scripts/`
+  directory to install the dumpers (the only place Ghidra's OSGi will load
+  them from).
+- **hactool / nstool are never called by rex** -- you run them yourself,
+  once, to produce the binary.
+
 Setup (one-time):
 
 ```bash
