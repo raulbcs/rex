@@ -53,10 +53,10 @@ and Ghidra 12.x installed.
 | tool | version used | what for |
 |---|---|---|
 | **Ghidra** | 12.1.2 (Homebrew) | imports/analyzes the binary; headless runs the dumpers |
-| **SwitchLoader** | [borntohonk/Ghidra-Switch-Loader](https://github.com/borntohonk/Ghidra-Switch-Loader) @ `2c9357f` (ext v1.6.1) | Ghidra extension: understands NSO/NRO binaries |
+| **SwitchLoader** | [borntohonk/Ghidra-Switch-Loader](https://github.com/borntohonk/Ghidra-Switch-Loader) @ `2c9357f` | Ghidra extension: understands NSO/NRO binaries |
 | **Java JDK** | 21 (`javac` included) | Ghidra itself + compiling the dumpers |
 | **uv** | any recent | runs rex (`uv run python`) |
-| hactool | [borntohonk/hactool](https://github.com/borntohonk/hactool) | one-time extraction: game dump → NCA → ExeFS → decompressed NSO (needs `prod.keys`/`title.keys` from your console) |
+| hactool | [borntohonk/hactool](https://github.com/borntohonk/hactool) @ `bb0f369` | one-time extraction: game dump → NCA → ExeFS → decompressed NSO (needs `prod.keys`/`title.keys` from your console) |
 
 Who invokes what:
 
