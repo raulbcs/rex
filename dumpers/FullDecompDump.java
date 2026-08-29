@@ -4,7 +4,7 @@
 //   + progress.log (line every 100 funcs with rate/ETA -- tail -f friendly).
 // Resume: existing functions.tsv is loaded; 'ok' functions are skipped.
 // Run via rex shards (~/rex) or Method B, NEUTRAL cwd.
-// @category MK8DX.Batch
+// @category Switch.Batch
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.script.GhidraScript;

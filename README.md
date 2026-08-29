@@ -14,12 +14,12 @@ Ghidra again. It also **generates the corpus** (decomp + asm dumps of every
 function) from an existing Ghidra project.
 
 ```
-$ rex callers CoinAdd
-  0x710018a9b8  DriftInput+0x644
+$ rex callers PlayerAdd
+  0x710018a9b8  InputUpdate+0x644
   0x71002631b0  FUN_71002630ec+0xc4
   ...
 $ rex headers 0x1e4
-  KartVehicle    +0x01e4  uint32_t  mDriftCounter
+  Player         +0x01e4  uint32_t  mCoins
 ```
 
 ## Quickstart
@@ -117,7 +117,7 @@ rex xref <va|name>           # every reference in the corpus
 rex headers 0x1e4            # which struct has a field here (C++ headers)
 ```
 
-Every command that takes a VA also takes a short name (`rex ann DriftCalc`).
+Every command that takes a VA also takes a short name (`rex ann PlayerMove`).
 
 ## Making it yours
 

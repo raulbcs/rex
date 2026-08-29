@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""headers_parser -- C++ header structs (.hpp) in the MK8DX-Headers style.
+"""headers_parser -- C++ header structs (.hpp) with //0xNN offset comments.
 
 Parses `class/struct X { type field; //0xNN ... };` with explicit offsets in
-comments (the MK8DX-Headers convention -- declared packing, no guessing).
+comments (declared packing, no guessing).
 Enums, methods, statics and nested structs are ignored (data layout only).
 
 Usage (library):
     from headers_parser import HeadersDB
     db = HeadersDB("/path/to/headers/include")
-    db.structs["KartVehicle"]                    # -> Struct(name, size, fields)
-    db.field_at("KartVehicle", 0x1e4)            # -> Field | None
+    db.structs["Player"]                         # -> Struct(name, size, fields)
+    db.field_at("Player", 0x1e4)                 # -> Field | None
     db.owners_at(0x1e4)                          # -> [(struct, field)] across structs
 
 rex integrates this in `rex headers` (offset lookup) and `rex ann` (hdr: badge).
@@ -148,7 +148,7 @@ if __name__ == "__main__":
     db = HeadersDB(sys.argv[1] if len(sys.argv) > 1 else
                    rexconfig.cfg("REX_HEADERS", ""))
     print(db.summary())
-    for probe in ("KartVehicle", "KartUnit", "RaceInfo"):
+    for probe in ("Player", "World", "GameMode"):
         s = db.structs.get(probe)
         print(f"\n== {probe}: {len(s.fields) if s else 0} campos")
         if s:

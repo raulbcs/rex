@@ -5,7 +5,7 @@
 // is a shard_resolve.py requirement (asm↔decomp of the same function set).
 // Run via rex shards (~/rex) or Method B: compile, copy .java+.class
 // to the Decompiler feature scripts dir, clear OSGi cache, -noanalysis -postScript.
-// @category MK8DX.Batch
+// @category Switch.Batch
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionIterator;

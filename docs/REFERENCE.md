@@ -75,7 +75,7 @@ requirement of `shard_resolve`.
 ## Command reference
 
 VA arguments accept `0x7100...`, bare hex, `FUN_...`, `thunk_FUN_...`, and
-registry short names (`rex ann DriftCalc`).
+registry short names (`rex ann PlayerMove`).
 
 | command | what it does |
 |---|---|
@@ -120,21 +120,21 @@ top-level `"_comment"` key is ignored everywhere. VAs are hex strings
 
 ```jsonc
 // data/function-names.json -- short names, usable wherever a VA is
-{"7100172ab0": "DriftCalc", "71001728fc": "MoveStep"}
+{"7100172ab0": "PlayerMove", "71001728fc": "StepUpdate"}
 
 // data/globals.json -- DAT_ symbols → names
 {"KartDirectorHolder": {"va": "7101300398", "tag": "holder", "value": "0x71011b2fe0"}}
 
 // data/enums.json -- known values/masks, annotated in ann comparisons
-{"control_byte": {"field": "KartUnit+0x78 (low byte)",
+{"control_byte": {"field": "Player+0x78 (low byte)",
                   "values": {"1": "idle", "5": "drift"},
                   "bits": {"0x200": "mini-turbo L1"}}}
 
 // data/vtables.json -- curated vtable registry; slots=0 → auto-detect
-{"vt_kartunit": {"va": "71011b2fe0", "slots": 80}}
+{"vt_player": {"va": "71011b2fe0", "slots": 80}}
 
 // data/ctors.json -- named ctors
-{"KartUnitCtor": {"va": "710017ff78"}}
+{"PlayerCtor": {"va": "710017ff78"}}
 
 // data/function-notes.json -- one-line curated notes (⭐ in ann)
 {"7100003208": "RaceDirector::calc [CONFIRMED]"}
@@ -145,11 +145,11 @@ top-level `"_comment"` key is ignored everywhere. VAs are hex strings
 Sections name the owner object; table rows carry the offsets:
 
 ```markdown
-## KartUnit (0x1AD8)
+## Player (0x1AD8)
 
 | Offset | Type | Meaning | Status | Source |
 |--------|------|---------|--------|--------|
-| +0x078 | u32  | control bitfield | RUNTIME | kartunit-runtime-offsets |
+| +0x078 | u32  | control bitfield | RUNTIME | player-runtime-offsets |
 ```
 
 Any `## <name>` applies to all rows until the next `##`. `ann` matches the
@@ -157,11 +157,11 @@ owner against the decomp line when it can (better disambiguation).
 
 ## Headers integration
 
-`REX_HEADERS` → a dir of `.hpp` files in the MK8DX-Headers style:
+`REX_HEADERS` → a dir of `.hpp` files whose fields carry `//0xNN` offset comments:
 
 ```cpp
-class KartVehicle {
-    uint32_t mDriftCounter; //0x1E4
+class Player {
+    uint32_t mCoins; //0x1E4
 };
 ```
 
@@ -169,7 +169,7 @@ Offsets come from the comments (declared packing, no guessing). Then:
 
 ```
 rex headers 0x1e4        # every struct with a field at +0x1e4
-rex headers KartVehicle  # full struct dump
+rex headers Player        # full struct dump
 rex ann <va>             # hdr:Struct.field badges on uncovered offsets
 ```
 
@@ -192,7 +192,7 @@ hactool -t nso <target>/main-binary/main \
   --uncompressed=<target>/main-binary/uncompressed_main
 ```
 
-Note the Build ID (e.g. `FE941ED5BA14BE5D` for MK8DX 3.0.5) -- it identifies
+Note the Build ID -- it identifies
 the version across your docs.
 
 Then import into Ghidra once via GUI: `ghidraRun` → **File → New Project**

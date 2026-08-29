@@ -47,7 +47,7 @@ def root() -> Path:
         print("ERROR: REX_ROOT not configured -- no guessing project paths.\n"
               "  export REX_ROOT=/path/to/target/03-analysis   (or create ~/.rexrc):\n"
               "    REX_ROOT=/path/03-analysis\n"
-              "  (the mk8dx-re shim configures this automatically)",
+              "  (a project-local shim can configure this automatically)",
               file=sys.stderr)
         sys.exit(2)
     p = Path(r).expanduser()

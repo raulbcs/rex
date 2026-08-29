@@ -324,7 +324,7 @@ def _load_memmap() -> None:
     """Parses MEMORY-MAP.md → {offset: [(object, meaning, status)]}.
 
     Single source: the curated table. Lines '| +0x184 | u32 | ... | STATUS | source |'
-    from any section (KartUnit, physics body, boost slot, RaceSystem, ...).
+    from any section (any object name works as the owner).
     """
     global _MEMMAP, _MEMMAP_NOTE
     if _MEMMAP is not None:
@@ -361,7 +361,7 @@ def _try_note(off: int, line: str, notes: list[str], seen: set[int]) -> None:
     if not ents:
         return
     seen.add(off)
-    # if the line already names the object (KartUnit/vehicle/etc), prefer its match
+    # if the line already names the object, prefer its match
     low = line.lower()
     chosen = None
     for obj, sig, status in ents:
@@ -941,7 +941,7 @@ def _inventory_slots(va: int) -> int | None:
 def _vtable_slots(va: int, max_slots: int = 0) -> list[tuple[int, int]]:
     """Slots (slot_va, target_va) de uma vtable em va -- via relocations.
 
-    MK8DX vtables are relocated qword arrays: each slot points to a function.
+    Switch vtables are relocated qword arrays: each slot points to a function.
     Tolerates gaps ≤2 slots (Itanium dtor pairs / reserved space).
     Para em: gap ≥3, alvo fora de .text (typeinfo/dado), ou max_slots.
     Compact regions (no RTTI) have no sharp boundary -- use max_slots.
@@ -1024,7 +1024,7 @@ def _ctor_name_for_va(va: int) -> str | None:
 def cmd_ctor(va: int, json_out: bool = False, list_all: bool = False) -> None:
     """Static ctor chain: holders → vtables installed per field.
 
-    MK8DX pattern (found in the KartUnit ctor): the ctor doesn't materialize the
+    Common pattern (seen in Switch titles): the ctor doesn't materialize the
     vtable com adrp+add -- carrega um HOLDER em .data (adrp+ldr PTR_DAT),
     cujo reloc resolve a base do bloco de vtables; add N + str [xN,#imm]
     instala a sub-vtable no campo do objeto.
@@ -1112,7 +1112,7 @@ def cmd_ctor(va: int, json_out: bool = False, list_all: bool = False) -> None:
     # operator.delete VAs have ZERO callers in the whole corpus (verified grep,
     # shard-*-asm); deallocation goes through the engine allocator (sead-style),
     # still unidentified. The Itanium convention (slots 0/1) does NOT hold here:
-    # KartUnit e BoostController compartilham slots 0/1 (herdados da base
+    # derived classes share slots 0/1 (inherited from the base
     # pattern) and slot 1 is a lazy-init accessor (__cxa_guard), not D0.
     if not installs and not new_sizes and not calls:
         print("  (no holder-based installs detected -- direct adrp+add?)")
@@ -1530,14 +1530,14 @@ def _load_enums() -> None:
 
 def _parse_va(tok: str) -> int:
     """Aceita '0x7100181d04', '7100181d04', 'FUN_7100181d04', 'sub_7100181d04',
-    short name from the registries (function 'CoinAdd', vtable 'vt_*', global 'KartHolder',
+    short name from the registries (function 'PlayerAdd', vtable 'vt_*', global 'WorldHolder',
     enum 'state_byte.0x07')."""
     _load_names()
     _load_vt_registry()
     assert _NAMES is not None and _VT_REGISTRY is not None
     raw = tok.strip()
     t = raw.lower()
-    if raw in _NAMES:                       # case-sensitive primeiro (CoinAdd)
+    if raw in _NAMES:                       # case-sensitive first
         return int(_NAMES[raw], 16)
     if t in _NAMES:                         # fallback case-insensitive
         return int(_NAMES[t], 16)
