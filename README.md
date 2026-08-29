@@ -1,5 +1,10 @@
 # rex
 
+> **Educational purposes only.** Personal study of reverse engineering on
+> games I own. Not affiliated with or endorsed by any rights holder. No
+> copyrighted assets (game code, keys, dumps) are or will be hosted here --
+> the repo contains only original analysis tooling.
+
 Static-analysis toolkit for Switch games (NSO binaries): raw binary + Ghidra
 corpus + C++ headers, queried through one CLI.
 
