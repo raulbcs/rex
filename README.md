@@ -133,3 +133,12 @@ Every command that takes a VA also takes a short name (`rex ann DriftCalc`).
 Deep reference -- every command, registry file formats, badge legend, and the
 gotchas (OSGi cache, lying headless exit codes) -- lives in
 [docs/REFERENCE.md](docs/REFERENCE.md).
+
+## Legal
+
+This repository contains **no Nintendo assets** -- no game code, no keys, no
+dumps; only original analysis tooling. To use it you are expected to **own
+the game** and dump **your own console's keys and your own copy** (e.g. via
+Lockpick_RCM). Do not ask for or share copyrighted material here. This
+project is not affiliated with or endorsed by Nintendo; it exists for
+interoperability research and personal study.
