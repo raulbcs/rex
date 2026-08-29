@@ -93,8 +93,15 @@ After that, `rex shards` reuses the existing project headlessly with
   data/function-names.json         optional: short names (ann/callers)
   data/globals.json                optional: DAT_ → name
   data/enums.json                  optional: enum values
+  data/vtables.json                optional: curated vtable registry
+  data/ctors.json                  optional: named ctors
+  data/function-notes.json         optional: curated notes (ann)
   notes/MEMORY-MAP.md              optional: offsets with owners (ann)
 ```
+
+Bootstrap a new target: `mkdir -p <target> && cp -r ~/projects/rex/dumpers <target>/`
+(the rex copy is the canonical source; `$REX_ROOT/dumpers` is just where rex
+looks first — `REX_DUMPERS` can point straight at `~/projects/rex/dumpers`).
 
 ### 2. Generate the corpus (the shards)
 
@@ -143,7 +150,61 @@ rex xref RaceInfo                # who references it (whole corpus)
 ```
 
 Optional registries (`data/*.json`) enrich `ann`/`callers`; without them rex
-works the same (just without names).
+works the same (just without names). Formats:
+
+```jsonc
+// function-names.json — {"va_hex": "ShortName"}; "_comment" key ignored
+{"71000e3c78": "BoostChannelSet", "7100172ab0": "DriftCalc"}
+
+// globals.json — {"Name": {"va": "7101300398", ...}}   (va WITHOUT 0x prefix)
+{"KartHolder": {"va": "7101300398", "tag": "holder", "value": "0x71011b2fe0"}}
+
+// enums.json — per enum: field doc + "values" and/or "bits" maps
+{"control_byte": {"field": "KartUnit+0x78 (low byte)",
+                  "values": {"1": "idle", "5": "drift"},
+                  "bits": {"0x200": "mini-turbo L1"}}}
+
+// vtables.json — {"vt_name": {"va": "71011b4ec0", "slots": 80, ...}}
+//   va WITHOUT 0x prefix; slots=0 → auto-detect
+
+// function-notes.json — {"va_hex": "one-line curated note"}   // shown as ⭐ in ann
+```
+
+`notes/MEMORY-MAP.md` sections: `## <Object name>` followed by table rows
+`| +0xNN | type | meaning | STATUS | source |` — any `## ` header names the
+owner object for the offsets under it.
+
+### `ann` badge legend
+
+| badge | meaning |
+|---|---|
+| `+0x1e4=Director: ...` | owner confirmed by the line's own context |
+| `+0x1e4≈Owner: ...` | heuristic single owner (confirm the base object) |
+| `+0x1e4=? A: ... \| B: ...` | ambiguous — multiple owners have this offset |
+| `?` suffix | source status UNCONFIRMED/PARTIAL |
+| `hdr:Struct.field` | from the C++ headers (REX_HEADERS), when MEMORY-MAP doesn't cover |
+
+### Command reference
+
+Full details: `rex --help` (the module docstring). Highlights beyond §4:
+
+```bash
+rex dis <va> [-n N]        # in-place disassembly (uv run --with capstone)
+rex dis <va1> <va2>        # range disassembly
+rex bit <off> <bit>        # who SET/CLEARs a flag bit (with the def)
+rex rodata <va> [-t f32]   # decode a table in .rodata/.data
+rex str <va> / str -f <sub># C-string at VA / reverse search
+rex ptr <va>               # resolve a .data/.rodata pointer
+rex vtable-callers <vt>    # BL + BLR call sites per slot ('0 BL callers' cure)
+rex blr <site_va>          # resolve a virtual dispatch (slot + vtables)
+rex ctor <va>              # static ctor chain (holders → vtables)
+rex adrp <va>              # ADRP+ADD/LDR materializations
+rex fn -r A..B             # list functions in a VA range
+rex offset <imm> -l -m 'str s'   # loads only, FP singles only
+```
+
+Every VA argument also accepts short names from `function-names.json`
+(`rex ann DriftCalc`, `rex callers MoveStep`).
 
 ## mk8dx-re (main repo)
 
