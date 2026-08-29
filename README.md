@@ -9,10 +9,12 @@ Ghidra again. It also **generates the corpus** (decomp + asm dumps of every
 function) from an existing Ghidra project.
 
 ```
-$ rex ann DriftCalc
-# DriftCalc = 0x7100172ab0
-*(undefined4 *)(param_1 + 0x1e4) = 0x1c2;   ⟦+0x1e4≈Director: drift counter⟧
-...
+$ rex callers CoinAdd
+  0x710018a9b8  DriftInput+0x644
+  0x71002631b0  FUN_71002630ec+0xc4
+  ...
+$ rex headers 0x1e4
+  KartVehicle    +0x01e4  uint32_t  mDriftCounter
 ```
 
 ## Quickstart

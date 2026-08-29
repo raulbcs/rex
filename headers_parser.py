@@ -138,7 +138,7 @@ class HeadersDB:
 
     def summary(self) -> str:
         nf = sum(len(s.fields) for s in self.structs.values())
-        return f"{len(self.structs)} structs, {nf} campos com offset"
+        return f"{len(self.structs)} structs, {nf} fields with offsets"
 
 
 # quick sanity CLI
