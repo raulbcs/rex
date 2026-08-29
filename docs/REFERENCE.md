@@ -63,8 +63,8 @@ settings dir: `~/Library/ghidra` on macOS, `~/.ghidra` elsewhere) → run
 `analyzeHeadless <proj> -process <program> -noanalysis -postScript <Dumper>`
 from a neutral cwd (`/tmp`) → fail on `SCRIPT ERROR` in the log.
 
-- decomp: ~6 min for ~33k functions, has **RESUME** (existing `ok` entries in
-  `functions.tsv` are skipped); `--force` ignores it
+- decomp: minutes-scale for tens of thousands of functions, has **RESUME**
+  (existing `ok` entries in `functions.tsv` are skipped); `--force` ignores it
 - asm: ~100 s
 - the subprocess gets `REX_ROOT` injected into its env (Java doesn't read
   `~/.rexrc`)

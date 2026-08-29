@@ -104,13 +104,30 @@ only needed to compile hactool from source.
 
 ## New project, from zero
 
-**1. Get the binary.** From your game dump: the update NSP is enough (it has
-the newest code). With `prod.keys`/`title.keys` and hactool:
+**1. Get the binary.**
+
+You need three things:
+
+- Your **game dump**. The update NSP is enough -- it always contains the
+  newest code (a base-game dump would only have day-one code).
+- Your console's **keys**: `prod.keys` and `title.keys`, dumped from a
+  hacked Switch with Lockpick_RCM. No keys, no decryption.
+- **hactool** (or nstool -- same steps, different flags).
+
+Then extract in three steps -- NSP to NCA, NCA to ExeFS, NSO to raw binary:
 
 ```bash
+# 1a. Find the PROGRAM NCA inside your NSP (nstool -l, or unzip the NSP and
+#     look for the largest .nca -- it's the one containing code).
+# 1b. Extract its ExeFS (the <TITLEKEY> line comes from your title.keys):
 hactool -k prod.keys --titlekey <TITLEKEY> -t nca --exefsdir main-binary/
+#     -> main, main.npdm, rtld, sdk... you want `main`.
+# 1c. Decompress the NSO -- THIS is the file rex and Ghidra work on:
 hactool -t nso main-binary/main --uncompressed=main-binary/uncompressed_main
 ```
+
+Note the **Build ID** hactool prints -- it identifies the exact game version
+across all your notes and registries.
 
 **2. Import into Ghidra (one time, via GUI).**
 
@@ -126,7 +143,8 @@ import is manual. Only once -- after this, everything runs headless.
    - Don't see that format in the list? SwitchLoader isn't installed --
      go back to Dependencies.
 4. Analyze: accept the defaults, additionally enable the **Switch IPC**
-   analyzer, and let it run. Expect roughly 30 minutes for a 19 MB NSO.
+   analyzer, and let it run. Analysis time scales with binary size --
+   a big title can take half an hour or more.
 5. Save the project.
 
 **3. Lay out the target.**
