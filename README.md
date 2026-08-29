@@ -8,6 +8,10 @@
 Static-analysis toolkit for Switch games (NSO binaries): raw binary + Ghidra
 corpus + C++ headers, queried through one CLI.
 
+Developed and battle-tested on **Mario Kart 8 Deluxe** (v3.0.5, ~33k
+functions): every feature here exists because a real analysis question
+needed it. The tool is game-agnostic, but that's where it proved itself.
+
 Ask it things like *which function contains this address*, *who calls it*,
 *who writes to this struct offset*, *what vtable is this* -- without opening
 Ghidra again. It also **generates the corpus** (decomp + asm dumps of every
