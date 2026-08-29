@@ -193,6 +193,24 @@ Every command that takes a VA also takes a short name (`rex ann PlayerMove`).
   notes work -- rex only parses the table format), `data/*.json` registries
   (short names, globals, enums, vtables), and `REX_HEADERS` pointing at any
   C++ headers that carry `//0xNN` offset comments.
+- **Where does the knowledge come from?** From you, via rex itself. On day
+  one, `ann` shows bare `FUN_7100...` and raw offsets -- that's normal; the
+  binary ships stripped (no symbols, no RTTI). The workflow is a loop:
+
+  1. **Ask** -- `rex body` / `rex callers` / `rex offset` / `rex vtable`
+     give you the raw material: who calls what, who writes where.
+  2. **Conclude** -- you establish an identity ("this vtable belongs to the
+     player class", "+0x1e4 is the drift counter").
+  3. **Record** -- write it into the registries: one line in
+     `function-names.json` (a short name), one row in `MEMORY-MAP.md`
+     (an offset meaning), one entry in `vtables.json`.
+  4. **Reap** -- next `rex ann` shows your names instead of raw hex,
+     which makes the *next* conclusion easier. Knowledge compounds.
+
+  If a community-maintained registry exists for your game (like
+  [MK8DX-Headers](https://github.com/raulbcs/MK8DX-Headers) with struct
+  offsets and vtables), drop it in and you start from step 2 instead of
+  step 1.
 - **Config is law** -- if you set something and it's invalid, rex errors out
   immediately instead of silently falling back.
 
