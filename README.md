@@ -45,7 +45,7 @@ and Ghidra 12.x installed.
 | tool | version used | what for |
 |---|---|---|
 | **Ghidra** | 12.1.2 (Homebrew) | imports/analyzes the binary; headless runs the dumpers |
-| **SwitchLoader** | 1.6.1 (borntohonk fork) | Ghidra extension: understands NSO/NRO binaries |
+| **SwitchLoader** | [borntohonk/Ghidra-Switch-Loader](https://github.com/borntohonk/Ghidra-Switch-Loader) @ `2c9357f` (ext v1.6.1) | Ghidra extension: understands NSO/NRO binaries |
 | **Java JDK** | 21 (`javac` included) | Ghidra itself + compiling the dumpers |
 | **uv** | any recent | runs rex (`uv run python`) |
 | hactool / nstool | borntohonk fork | only for extracting the binary (once) |
@@ -59,6 +59,7 @@ brew install ghidra openjdk@21
 # 2. SwitchLoader extension -- clone & build against your Ghidra:
 git clone https://github.com/borntohonk/Ghidra-Switch-Loader
 cd Ghidra-Switch-Loader
+git checkout 2c9357f        # commit validated with Ghidra 12.1.2
 gradle -PGHIDRA_INSTALL_DIR=/opt/homebrew/Cellar/ghidra/12.1.2/libexec
 # → produces a SwitchLoader-<ver>-Ghidra_12.1.2.zip in dist/
 # 3. Install it: Ghidra GUI → File → Install Extensions → + → the zip →
