@@ -1,10 +1,10 @@
-// Exporta listing asm de TODAS as funções do programa (sem filtro).
-// Saída (default = REX_ROOT/data/asm-full; override: único arg = dir de saída):
-//   shard-NNN.txt (500 funções/shard) + functions.tsv (entry, name, insns, shard).
-// SHARD=500 alinhado ao FullDecompDump — numeração idêntica entre corpus é requisito
-// do shard_resolve.py (asm↔decomp do mesmo conjunto de funções).
-// Rodar via rex shards (~/projects/rex) ou Method B: compilar, copiar .java+.class
-// pro Decompiler feature scripts dir, limpar cache OSGi, -noanalysis -postScript.
+// Exports the full asm listing of ALL program functions (no filter).
+// Output (default = $REX_ROOT/data/asm-full; override: single arg = output dir):
+//   shard-NNN.txt (500 funcs/shard) + functions.tsv (entry, name, insns, shard).
+// SHARD=500 aligned with FullDecompDump — identical numbering across corpora
+// is a shard_resolve.py requirement (asm↔decomp of the same function set).
+// Run via rex shards (~/projects/rex) or Method B: compile, copy .java+.class
+// to the Decompiler feature scripts dir, clear OSGi cache, -noanalysis -postScript.
 // @category MK8DX.Batch
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.listing.Function;
@@ -22,7 +22,7 @@ public class FullAsmDump extends GhidraScript {
         String outDir = System.getenv("REX_ROOT");
         String[] args = getScriptArgs();
         if (outDir == null && args.length == 0) {
-            throw new RuntimeException("REX_ROOT não setado (nem arg de dir de saída)");
+            throw new RuntimeException("REX_ROOT not set (nor output dir arg)");
         }
         outDir = (outDir != null ? outDir : "") + "/data/asm-full";
         if (args.length > 0) outDir = args[0];
@@ -58,10 +58,10 @@ public class FullAsmDump extends GhidraScript {
             idx.println(addr + "\t" + f.getName() + "\t" + n + "\t" + shardIdx);
             totalInsns += n;
             count++;
-            if (count % 5000 == 0) println("progresso: " + count);
+            if (count % 5000 == 0) println("progress: " + count);
         }
         if (shardPw != null) shardPw.close();
         idx.close();
-        println("TOTAL funcoes: " + count + ", instrucoes: " + totalInsns);
+        println("TOTAL functions: " + count + ", instructions: " + totalInsns);
     }
 }

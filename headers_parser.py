@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""headers_parser — structs dos headers C++ (.hpp) do padrão MK8DX-Headers.
+"""headers_parser — C++ header structs (.hpp) in the MK8DX-Headers style.
 
-Parseia `class/struct X { tipo campo; //0xNN ... };` com offsets explícitos
-nos comentários (o padrão do MK8DX-Headers — packing declarado, sem adivinhar).
-Enums, métodos, statics e nested structs são ignorados (só layout de dados).
+Parses `class/struct X { type field; //0xNN ... };` with explicit offsets in
+comments (the MK8DX-Headers convention — declared packing, no guessing).
+Enums, methods, statics and nested structs are ignored (data layout only).
 
-Uso (library):
+Usage (library):
     from headers_parser import HeadersDB
-    db = HeadersDB("~/projects/MK8DX-Headers/include")
+    db = HeadersDB("/path/to/headers/include")
     db.structs["KartVehicle"]                    # -> Struct(name, size, fields)
     db.field_at("KartVehicle", 0x1e4)            # -> Field | None
-    db.owner_at(0x1e4, cls="KartVehicle")        # -> [(cls, field)] em todas as structs
+    db.owners_at(0x1e4)                          # -> [(struct, field)] across structs
 
-rex integra isto em `rex headers` (annotated offsets) e `rex ann` (badge ⟦hdr⟧).
+rex integrates this in `rex headers` (offset lookup) and `rex ann` (hdr: badge).
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ class HField:
 class HStruct:
     name: str
     file: str
-    size: int          # último offset + tamanho (ou 0 se desconhecido)
+    size: int          # last offset + size (or 0 if unknown)
     fields: list = dc_field(default_factory=list)
 
     def field_at(self, off: int) -> HField | None:
@@ -56,7 +56,7 @@ _RE_FIELD = re.compile(
 
 
 def _skip_to_close(body: str, i: int) -> int:
-    """Índice após o '}' que fecha o bloco aberto antes de i (brace counting)."""
+    """Index after the '}' closing the block opened before i (brace counting)."""
     depth = 1
     while i < len(body) and depth:
         c = body[i]
@@ -71,24 +71,24 @@ def _skip_to_close(body: str, i: int) -> int:
 def parse_hpp(path: Path) -> list[HStruct]:
     out: list[HStruct] = []
     text = path.read_text(errors="replace").replace("\r\n", "\n")
-    # métodos/statics/nested: remove blocos internos { ... } de assinaturas
-    # (mantém campos — eles não têm {})
+    # methods/statics/nested: drop inner { ... } blocks of signatures
+    # (keeps fields — they have no {})
     for m in _RE_STRUCT.finditer(text):
         name = m.group(1)
         i = m.end()
         depth = 0
         fields: list[HField] = []
-        # coleta até fechar a struct
+        # collects until the struct closes
         while i < len(text):
             c = text[i]
             if c == "{":
-                # bloco interno (método/nested): pula inteiro
+                # inner block (method/nested): skip entirely
                 i = _skip_to_close(text, i + 1)
                 continue
             if c == "}":
                 break
             if c == ";":
-                # linha INTEIRA (o offset está no comentário APÓS o ';')
+                # FULL line (the offset is in the comment AFTER the ';')
                 ls = text.rfind("\n", 0, i) + 1
                 le = text.find("\n", i)
                 if le == -1:
@@ -97,7 +97,7 @@ def parse_hpp(path: Path) -> list[HStruct]:
                 fm = _RE_FIELD.match(line)
                 if fm:
                     typ = fm.group(1).strip()
-                    # ignora return de método estático inline etc
+                    # skip static inline method returns etc
                     if typ.split()[0] in ("return", "static", "void", "friend", "using", "typedef", "enum"):
                         continue
                     fname = fm.group(2)
@@ -125,7 +125,7 @@ class HeadersDB:
         for p in sorted(self.dir.rglob("*.hpp")):
             for s in parse_hpp(p):
                 if s.name in self.structs:
-                    continue  # primeira declaração vence (include guard)
+                    continue  # first declaration wins (include guard)
                 self.structs[s.name] = s
                 for f in s.fields:
                     self._by_offset.setdefault(f.offset, []).append((s, f))
@@ -141,7 +141,7 @@ class HeadersDB:
         return f"{len(self.structs)} structs, {nf} campos com offset"
 
 
-# CLI rápido p/ sanity
+# quick sanity CLI
 if __name__ == "__main__":
     import sys
     import rexconfig

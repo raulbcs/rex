@@ -1,9 +1,9 @@
-// Decompila TODAS as funções do programa (pseudocode C) via DecompInterface.
-// Saída (default = REX_ROOT/data/decomp-full; override: único arg = dir de saída):
+// Decompiles ALL program functions (C pseudocode) via DecompInterface.
+// Output (default = $REX_ROOT/data/decomp-full; override: single arg = output dir):
 //   shard-NNN.txt (500 funcs/shard) + functions.tsv (entry\tname\tstatus\tshard)
-//   + progress.log (linha a cada 100 funcs com rate/ETA — tail -f friendly).
-// Resume: functions.tsv existente é carregado; funções 'ok' são puladas.
-// Rodar via rex shards (~/projects/rex) ou Method B, cwd NEUTRO.
+//   + progress.log (line every 100 funcs with rate/ETA — tail -f friendly).
+// Resume: existing functions.tsv is loaded; 'ok' functions are skipped.
+// Run via rex shards (~/projects/rex) or Method B, NEUTRAL cwd.
 // @category MK8DX.Batch
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
@@ -21,14 +21,14 @@ public class FullDecompDump extends GhidraScript {
         String out = System.getenv("REX_ROOT");
         String[] args = getScriptArgs();
         if (out == null && args.length == 0) {
-            throw new RuntimeException("REX_ROOT não setado (nem arg de dir de saída)");
+            throw new RuntimeException("REX_ROOT not set (nor output dir arg)");
         }
         out = (out != null ? out : "") + "/data/decomp-full";
         if (args.length > 0) out = args[0];
         final String OUT = out;
         new File(OUT).mkdirs();
 
-        // resume: entradas já concluídas
+        // resume: entries already done
         Set<String> done = new HashSet<>();
         File idxFile = new File(OUT + "/functions.tsv");
         if (idxFile.exists()) {

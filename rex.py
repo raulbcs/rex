@@ -1,78 +1,80 @@
 #!/usr/bin/env python3
-"""rex — faca suíça de RE MK8DX (binário cru + corpus).
+"""rex — RE Swiss-army knife (raw binary + corpus).
 
-Resolve as fricções recorrentes da análise estática:
-  rex fn <va>              → qual função contém o endereço
-  rex callers <va>         → todos os BL para o alvo (com nome da função caller)
-  rex body <va> [-a]       → corpo no corpus (decomp; -a = asm)
+Solves the recurring frictions of static analysis:
+  rex fn <va>              → which function contains the address
+  rex callers <va>         → all BLs to the target (with caller function name)
+  rex body <va> [-a]       → body from the corpus (decomp; -a = asm)
   rex offset <imm> [-w|-l] [-m SUB] [-r A..B]
-                           → instruções que acessam [reg, #imm] (default: STORES;
-                             -w = writes (alias do default); -l = loads)
-                             cobre str/ldr b/h/w/x/s/d/q, stp/ldp, stur/ldur e
+                           → instructions accessing [reg, #imm] (default: STORES;
+                             -w = writes (alias of default); -l = loads)
+                             covers str/ldr b/h/w/x/s/d/q, stp/ldp, stur/ldur and
                              pre/post-index writeback (str x,[x,#imm]! / [x],#imm)
-                             (offset de struct com sinal; FP/SIMD com escala correta)
-                             -m SUB: filtra pelo lado esquerdo renderizado
-                               (ex.: -m 'stp s' só pairs FP; -m 'str s' só singles)
-                             -r A..B: só VAs no range [A, B] (ex.: -r 0x7100160000..0x71001a0000)
-  rex rodata <va> [-t T] [-n N]   → decodifica tabela em .rodata/.data
+                             (struct offset with sign; FP/SIMD with correct scale)
+                             -m SUB: filter by rendered left-hand side
+                               (e.g. -m 'stp s' → FP pairs only; -m 'str s' → singles)
+                             -r A..B: only VAs within [A, B] (e.g. -r 0x7100160000..0x71001a0000)
+  rex rodata <va> [-t T] [-n N]   → decodes a table in .rodata/.data
                             T: i32 (default) | u32 | f32 | f64 | i64 | u64
-                               | i16 | u16 | i8 | u8 | hex  (u64 resolve → FUN_xxx)
-  rex str <va>             → C-string no VA
-  rex str -f <substr>      → busca REVERSA: VAs que contêm a substring
-  rex vtable <va|nome> [-n N] [-j|-l] → dump da vtable via relocations
-                               (slots→funções com nomes curtos; -n limita p/
-                               blocos compactos sem RTTI; -j JSON; -l lista
-                               as registradas em data/vtables.json)
-  rex vtable-callers <va|nome> → inventário de call sites por slot de uma vtable:
-                               BL callers diretos do alvo (exatos) + BLR sites cujo
-                               slot-offset == offset do slot (dispatch virtual,
-                               candidatos). Cobre o gargalo '0 BL callers' do NEXT.md.
-  rex blr <site_va>          → resolve um dispatch virtual: slot-offset + quais
-                               vtables curadas têm slot nesse offset
-  rex blr -l                 → resumo global: total de BLR em .text, quantos com
-                               slot-offset resolvido, top offsets por frequência
-  rex ctor <va|nome> [-l]    → cadeia estática do ctor: holders -> vtables
-                               instaladas por campo; new(size) e calls nomeados
-  rex adrp <va>            → ADRP+ADD/LDR que materializam o VA no .text
-  rex dis <va> [-n N]      → disassembly in loco (capstone via 'uv run --with
-                             capstone'; fallback estrutural ret/nop/bl)
-  rex dis <va1> <va2>      → range: disassembla de va1 até va2 (inclusivo)
-  rex bit <off> <bit> [-r A..B] → stores de #off que SET/CLEAR/TOGGLE o bit, com o
-                             def por imediato (orr/and/eor/mov) que o originou
-                             (-r filtra por range de VA)
-  rex reloc <va> [-n N] [-b B] → entradas da tabela de relocations do NSO
-                             (R_AARCH64_RELATIVE) a partir do VA — resolve
-                             vtables relocáveis: addend → nome da função
-  rex reloc -a <va>        → REVERSO: slots que recebem este VA como addend
-                           (= em quais vtables a função é método)
-  rex ann <va>             → corpo decomp ANOTADO: offsets de struct com nome
-                           semântico do MEMORY-MAP.md e chamadas com nota
-                           curatorial (function-notes.json). Padrão: offset
-                           conhecido em destaque [+0x184 = coins clamp 0..10]
-                           OFF desconhecido fica limpo — foco no que sabe.
-  rex ptr <va>            → resolve ponteiro em .data/.rodata: lê o qword no VA
-                           e identifica o alvo (função/vtable/global/string)
-  rex xref <va|nome>      → quem referencia um VA/global no corpus (decomp-full
-                            + asm-full; DAT_/PTR_DAT_ + hex). lista arq:linha+fn
-  rex fn -r A..B          → lista funções catalogadas com start em [A, B]
-  rex headers <offset|Struct> → campo do MK8DX-Headers nesse offset (todas as
-                            structs) ou dump da struct; badge hdr: no `ann`
-                            (config REX_HEADERS = dir include/)
+                               | i16 | u16 | i8 | u8 | hex  (u64 resolves → FUN_xxx)
+  rex str <va>             → C-string at the VA
+  rex str -f <substr>      → REVERSE search: VAs containing the substring
+  rex vtable <va|name> [-n N] [-j|-l] → dump the vtable via relocations
+                               (slots→functions with short names; -n limits for
+                               compact blocks without RTTI; -j JSON; -l lists
+                               those registered in data/vtables.json)
+  rex vtable-callers <va|name> → call-site inventory per vtable slot: exact
+                               direct BL callers + BLR sites whose slot-offset
+                               matches (virtual dispatch candidates). Covers the
+                               '0 BL callers' gap.
+  rex blr <site_va>          → resolves a virtual dispatch: slot-offset + which
+                               curated vtables have a slot at that offset
+  rex blr -l                 → global summary: total BLRs in .text, how many with
+                               resolved slot-offset, top offsets by frequency
+  rex ctor <va|name> [-l]    → static ctor chain: holders → vtables installed
+                               per field; new(size) and named calls
+  rex adrp <va>            → ADRP+ADD/LDR materializing the VA in .text
+  rex dis <va> [-n N]      → in-place disassembly (capstone via 'uv run --with
+                             capstone'; structural fallback ret/nop/bl)
+  rex dis <va1> <va2>      → range: disassembles from va1 to va2 (inclusive)
+  rex bit <off> <bit> [-r A..B] → stores of #off that SET/CLEAR/TOGGLE the bit, with
+                               the immediate def (orr/and/eor/mov) that produced it
+                               (-r filters by VA range)
+  rex reloc <va> [-n N] [-b B] → NSO relocation table entries
+                               (R_AARCH64_RELATIVE) from the VA — resolves
+                               relocatable vtables: addend → function name
+  rex reloc -a <va>        → REVERSE: slots receiving this VA as addend
+                           (= which vtables have the function as a method)
+  rex ann <va>             → ANNOTATED decomp body: struct offsets with semantic
+                               names from MEMORY-MAP.md and curated call notes
+                               (function-notes.json). Default: known offsets
+                               highlighted [+0x184 = coins clamp 0..10];
+                               unknown offsets stay clean — focus on what's known.
+  rex ptr <va>            → resolves a pointer in .data/.rodata: reads the qword
+                               at the VA and identifies the target (function/
+                               vtable/global/string)
+  rex xref <va|name>      → who references a VA/global in the corpus (decomp-full
+                            + asm-full; DAT_/PTR_DAT_ + raw hex). lists file:line+fn
+  rex fn -r A..B          → lists catalogued functions with start in [A, B]
+  rex headers <offset|Struct> → C++ header field at this offset (across all
+                            structs) or struct dump; hdr: badge in `ann`
+                            (config REX_HEADERS = include/ dir)
   rex shards [all|decomp|asm] [--force]
-                          → GERA o corpus (shards) via Ghidra headless: limpa
-                            cache OSGi, compila $REX_DUMPERS/ (default
-                            $REX_ROOT/dumpers), instala em
-                            Extensions/SwitchLoader e roda FullDecompDump
-                            (~6min, RESUME) + FullAsmDump (~100s) com detecção
-                            de SCRIPT ERROR. Saída em $REX_ROOT/data/
+                          → GENERATES the corpus (shards) via Ghidra headless:
+                            clears OSGi cache, compiles $REX_DUMPERS/ (default
+                            $REX_ROOT/dumpers), installs into
+                            Extensions/SwitchLoader and runs FullDecompDump
+                            (~6min, RESUME) + FullAsmDump (~100s) with SCRIPT
+                            ERROR detection. Output in $REX_ROOT/data/
 
-Args de VA aceitam '0x7100...', '7100...' ou 'FUN_7100...'/'thunk_FUN_...'.
+VA args accept '0x7100...', '7100...' or 'FUN_7100...'/'thunk_FUN_...'.
 
-Casos-edge: 'fn' AVISA quando o VA está em GAP (função órfã do dumper,
-bounds-check via asm-full insns); 'body' distingue mid-function (dumpa a
-contenedora) de gap (disassembla in loco com 'dis').
+Edge cases: 'fn' WARNS when the VA is in a GAP (dumper-orphan function,
+bounds-check via asm-full insns); 'body' tells mid-function (dumps the
+container) from gap (disassembles in place with 'dis').
 
-Paths relativos ao repo (03-analysis/). Python 3 stdlib only.
+Configuration via env > ~/.rexrc (rexconfig.py) — no project paths in code.
+Python 3 stdlib only.
 """
 from __future__ import annotations
 
@@ -83,8 +85,8 @@ import struct
 import sys
 from pathlib import Path
 
-# Config: env > ~/.rexrc — NENHUM path de projeto no código (rexconfig.py).
-# ROOT é lazy: só resolve (e exige REX_ROOT) quando um comando precisa de dados.
+# Config: env > ~/.rexrc — NO project paths in code (rexconfig.py).
+# ROOT is lazy: only resolves (and requires REX_ROOT) when a command needs data.
 import os
 import rexconfig
 
@@ -112,7 +114,7 @@ ASM_TSV = None        # idem
 BASE = int(_cfg("REX_BASE", "0x7100000000"), 16)   # VA base do NSO (config)
 _FUNCS = None         # list[(addr, name)] sorted
 _FUNCS_ADDRS = None   # list[int] sorted, paralelo a _FUNCS
-_INSNS = None         # addr -> n. de instruções (asm-full; tamanho exato)
+_INSNS = None         # addr -> n. of instructions (asm-full; exact size)
 
 
 def _load():
@@ -151,7 +153,7 @@ def _load():
 
 
 def fn_of(va: int) -> tuple[int, str] | None:
-    """Função que contém o VA."""
+    """Function containing the VA."""
     _load()
     i = bisect.bisect_right(_FUNCS_ADDRS, va) - 1
     if i < 0:
@@ -183,7 +185,7 @@ def _segments():
 
 
 def va_to_file(va: int) -> int | None:
-    """Converte VA → file offset usando os segmentos (não só text)."""
+    """Converts VA → file offset using the segments (not just text)."""
     d = _DATA
     m = va - BASE
     # text segment tem file_off ≠ mem_off (header 0x100): usa mapping direto
@@ -204,20 +206,20 @@ def cmd_fn(va: int) -> None:
     assert _FUNCS_ADDRS is not None  # populado por _load()
     f = fn_of(va)
     if not f:
-        print(f"nenhuma função contém {va:#x}")
+        print(f"no function contains {va:#x}")
         return
     start, name = f
     off = va - start
-    # bounds-check exato via asm-full (insns); sem asm-full, usa próxima função
+    # exact bounds-check via asm-full (insns); without asm-full, next function
     if _INSNS:
         end = start + _INSNS.get(start, 0) * 4
     else:
         i = bisect.bisect_right(_FUNCS_ADDRS, start)
         end = _FUNCS_ADDRS[i] if i < len(_FUNCS_ADDRS) else start + (1 << 30)
     if va >= end:
-        print(f"AVISO: {va:#x} está em GAP (depois do fim de {name} @ {start:#x}, "
-              f"tamanho {end - start:#x} — funcao nao catalogada ou dado)")
-        print(f"  função anterior mais próxima: {name} @ {start:#x} (fim {end:#x})")
+        print(f"WARNING: {va:#x} is in a GAP (after end of {name} @ {start:#x}, "
+              f"size {end - start:#x} — uncatalogued function or data)")
+        print(f"  nearest previous function: {name} @ {start:#x} (end {end:#x})")
         return
     print(f"{name} @ {start:#x}  (VA {va:#x} = +{off:#x})")
 
@@ -226,8 +228,8 @@ def cmd_callers(target: int) -> None:
     _load()
     d = _DATA
     assert d is not None
-    # varre só .text (literal pools em .rodata/.data e padding entre funções
-    # decodificam como BL espúrio — falso-positivo histórico do callers)
+    # scans .text only (literal pools in .rodata/.data and inter-function padding
+    # decode as spurious BL — a historical callers false-positive)
     tm, tf, ts = struct.unpack_from("<III", d, 0x10)
     end = min(tf + ts, len(d)) & ~3
     hits: list[int] = []
@@ -240,8 +242,8 @@ def cmd_callers(target: int) -> None:
             if imm & 0x2000000:
                 imm -= 0x4000000
             if src + (imm << 2) == target:
-                # bounds-check: BL só vale se src estiver DENTRO de função
-                # catalogada (não em gap pós-fim — é dado/literal, não call)
+                # bounds-check: BL only counts if src is INSIDE a catalogued
+                # function (not in a post-end gap — that\'s data/literal, not a call)
                 if _INSNS:
                     f = fn_of(src)
                     if f and src < f[0] + _INSNS.get(f[0], 0) * 4:
@@ -251,9 +253,9 @@ def cmd_callers(target: int) -> None:
                 else:
                     hits.append(src)
     if not hits:
-        msg = f"0 BL callers de {target:#x}"
+        msg = f"0 BL callers of {target:#x}"
         if gaps:
-            msg += f"  ({len(gaps)} em GAP descartados — provável literal/dado)"
+            msg += f"  ({len(gaps)} in GAP discarded — likely literal/data)"
         print(msg + " (exit 1)")
         sys.exit(1)
     _load_names()
@@ -261,15 +263,15 @@ def cmd_callers(target: int) -> None:
     for h in hits:
         print(f"  {h:#x}  {name_of(h)}")
     if gaps:
-        print(f"# {len(gaps)} hit(s) em GAP descartados: " +
+        print(f"# {len(gaps)} GAP hit(s) discarded: " +
               ", ".join(f"{g:#x}" for g in gaps))
     if short:
-        print(f"# alvo: {short} ({target:#x})")
+        print(f"# target: {short} ({target:#x})")
 
 
 def _disasm(va: int, n: int) -> list[str]:
-    """Disassemble n instructions at va. Capstone (via uv --with) se disponível;
-    senão marcação estrutural mínima (ret/nop/bl/padding) — não é decompilação."""
+    """Disassemble n instructions at va. Capstone (via uv --with) if available;
+    otherwise minimal structural marking (ret/nop/bl/padding) — not decompilation."""
     _load()
     assert _DATA is not None
     d = _DATA
@@ -293,7 +295,7 @@ def _disasm(va: int, n: int) -> list[str]:
                 imm = imm - 0x4000000 if imm & 0x2000000 else imm
                 s = f"bl {a + (imm << 2):#x}"
             else:
-                s = f".word {w:08x}  (capstone ausente: uv run --with capstone)"
+                s = f".word {w:08x}  (capstone missing: uv run --with capstone)"
             out.append(f"{a:#x}: {s}")
         return out
 
@@ -302,27 +304,27 @@ def cmd_dis(va: int, n: int) -> None:
     _load()
     for line in _disasm(va, n):
         print(f"  {line}")
-    # contexto: função vizinha + limites
+    # context: neighboring function + bounds
     f = fn_of(va)
     if f:
         start, name = f
         end = start + _INSNS.get(start, 0) * 4 if _INSNS else None
         where = "mid-function" if (end and start < va < end) else \
-            ("GAP após" if va > start else "antes de")
+            ("GAP after" if va > start else "before")
         print(f"# {where} {name} @ {start:#x}" + (f" (fim {end:#x})" if end else ""))
 
 
-# ------------------------------------------------------------- ann (anotação)
+# ------------------------------------------------------------- ann (annotation)
 
 _MEMMAP = None          # {offset_int: [(objeto, significado, status)]}
-_MEMMAP_NOTE = ""       # cabeçalho de aviso (ambiguidades)
+_MEMMAP_NOTE = ""       # warning header (ambiguities)
 
 
 def _load_memmap() -> None:
-    """Parseia MEMORY-MAP.md → {offset: [(objeto, significado, status)]}.
+    """Parses MEMORY-MAP.md → {offset: [(object, meaning, status)]}.
 
-    Fonte única: a tabela curada. Linhas '| +0x184 | u32 | ... | STATUS | font |'
-    de qualquer seção (KartUnit, physics body, boost slot, RaceSystem, ...).
+    Single source: the curated table. Lines '| +0x184 | u32 | ... | STATUS | source |'
+    from any section (KartUnit, physics body, boost slot, RaceSystem, ...).
     """
     global _MEMMAP, _MEMMAP_NOTE
     if _MEMMAP is not None:
@@ -339,7 +341,7 @@ def _load_memmap() -> None:
             typ = m.group(2).strip()
             sig = m.group(3).strip().strip("*")
             status = m.group(4).strip()
-            # ignora separator/header de tabela
+            # ignores table separator/header
             if sig in ("Significado", "---") or set(sig) <= {"-", " "}:
                 continue
             sig = re.sub(r"\s+", " ", sig)
@@ -348,18 +350,18 @@ def _load_memmap() -> None:
             mapping.setdefault(off, []).append((obj, sig, status))
     _MEMMAP = mapping
     amb = sum(1 for v in mapping.values() if len(v) > 1)
-    _MEMMAP_NOTE = f"MEMmap: {len(mapping)} offsets, {amb} ambíguos (multi-owner)"
+    _MEMMAP_NOTE = f"MEMmap: {len(mapping)} offsets, {amb} ambiguous (multi-owner)"
 
 
 def _try_note(off: int, line: str, notes: list[str], seen: set[int]) -> None:
-    """Adiciona anotação do offset se o MEMORY-MAP o conhece."""
-    if off in seen or off < 0x40:   # offsets <0x40: onipresentes, alto risco de dono errado
+    """Adds the offset annotation if MEMORY-MAP knows it."""
+    if off in seen or off < 0x40:   # offsets <0x40: ubiquitous, high risk of wrong owner
         return
     ents = _MEMMAP.get(off) if _MEMMAP else None
     if not ents:
         return
     seen.add(off)
-    # se a linha já nomeia o objeto (KartUnit/vehicle/etc), prioriza o match dele
+    # if the line already names the object (KartUnit/vehicle/etc), prefer its match
     low = line.lower()
     chosen = None
     for obj, sig, status in ents:
@@ -369,8 +371,8 @@ def _try_note(off: int, line: str, notes: list[str], seen: set[int]) -> None:
             break
     if chosen is None and len(ents) == 1:
         obj, sig, status = ents[0]
-        # dono heurístico: marca como candidato (map é incompleto; +0x78 pode ser
-        # de outro objeto na cadeia) — "?" lembra de confirmar o base object
+        # heuristic owner: mark as candidate (map is incomplete; +0x78 may belong
+        # to another object in the chain) — "?" reminds to confirm the base object
         notes.append(f"+{off:#x}≈{obj.split()[0]}: {sig[:90]}")
         return
     if chosen is not None:
@@ -378,13 +380,13 @@ def _try_note(off: int, line: str, notes: list[str], seen: set[int]) -> None:
         badge = "?" if status.upper() in ("UNCONFIRMED", "PARTIAL") else ""
         notes.append(f"+{off:#x}={obj.split()[0]}{badge}: {sig[:90]}")
     else:
-        # ambíguo: mostra os 2 primeiros donos
+        # ambiguous: show first 2 owners
         parts = [f"{o.split()[0]}: {s[:60]}" for o, s, _ in ents[:2]]
         notes.append(f"+{off:#x}=? {' | '.join(parts)}")
 
 
 def _hdr_note(off: int, line: str, notes: list[str], seen: set[int]) -> None:
-    """Badge hdr:Struct.field do MK8DX-Headers (quando o MEMORY-MAP não cobre)."""
+    """hdr:Struct.field badge from the C++ headers (when MEMORY-MAP doesn't cover)."""
     if off in seen or off < 0x40 or _HEADERS is None:
         return
     hits = _HEADERS.owners_at(off)
@@ -402,7 +404,7 @@ def _hdr_note(off: int, line: str, notes: list[str], seen: set[int]) -> None:
 
 
 def _offset_notes(line: str) -> list[str]:
-    """Notas de offset do MEMORY-MAP para uma linha de decomp (3 formas)."""
+    """MEMORY-MAP offset notes for a decomp line (3 forms)."""
     notes: list[str] = []
     seen: set[int] = set()
     _load_headers()
@@ -412,7 +414,7 @@ def _offset_notes(line: str) -> list[str]:
         _try_note(off, line, notes, seen)
         if len(notes) == before:
             _hdr_note(off, line, notes, seen)
-    # param_1[N] → offset N*8 (indexação de ponteiro do decomp)
+    # param_1[N] → offset N*8 (decompiler pointer indexing)
     for m in re.finditer(r"\bparam_\d+\[(\d+)\]", line):
         _try_note(int(m.group(1)) * 8, line, notes, seen)
     # *(tipo *)(x + N) com N DECIMAL (Ghidra renderiza decimal); ignora vtable `**(`
@@ -423,9 +425,9 @@ def _offset_notes(line: str) -> list[str]:
 
 
 def _ann_line(line: str) -> str:
-    """Uma linha de decomp com anotações no fim (não quebra a expressão)."""
+    """One decomp line with trailing annotations (doesn't break the expression)."""
     notes: list[str] = _offset_notes(line)
-    # globals DAT_7100.../PTR_DAT_7100... → nome do registry + valor
+    # globals DAT_7100.../PTR_DAT_7100... → registry name + value
     _load_globals()
     gr = _GLOBALS_R or {}
     for m in re.finditer(r"(?:PTR_)?DAT_([0-9a-fA-F]{9,12})", line):
@@ -434,8 +436,8 @@ def _ann_line(line: str) -> str:
             ent = (_GLOBALS or {})[nm]
             val = f" = {ent['value']}" if ent.get("value") else ""
             notes.append(f"{nm}{val}")
-    # enums: comparacoes/mascaras com valor conhecido — só valores DISTINCTIVOS
-    # (>=0x10 ou mascara multi-bit); 0/1/2... pequenos sao onipresentes = ruido
+    # enums: comparisons/masks with known value — DISTINCTIVE values only
+    # (>=0x10 or multi-bit mask); small 0/1/2... are ubiquitous = noise
     _load_enums()
     ev = _ENUM_VALS or {}
     for m in re.finditer(r"(?:==|!=|&|\band\b|\bor\b)\s*\(?\s*(0x[0-9a-fA-F]+|\d+)\s*\)?", line):
@@ -451,7 +453,7 @@ def _ann_line(line: str) -> str:
 
 
 def cmd_ann(va: int, n_context: int = 0) -> None:
-    """Corpo decomp com anotações semânticas inline."""
+    """Decomp body with inline semantic annotations."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))  # rex vive em ~/projects/rex
     from shard_resolve import ShardIndex
     idx = ShardIndex()
@@ -462,7 +464,7 @@ def cmd_ann(va: int, n_context: int = 0) -> None:
             body = idx.load_decomp(f[0])
             print(f"# {va:#x} mid-function de {f[1]} @ {f[0]:#x} — corpo inteiro anotado")
         if body is None:
-            print(f"não achou corpo de {va:#x} no corpus")
+            print(f"body of {va:#x} not found in corpus")
             sys.exit(1)
     _load_memmap()
     assert _MEMMAP is not None
@@ -488,7 +490,7 @@ def cmd_body(va: int, asm: bool) -> None:
     idx = ShardIndex()
     body = idx.load_asm(va) if asm else idx.load_decomp(va)
     if body is None:
-        # nao e inicio catalogado: distingue mid-function de gap
+        # not a catalogued start: tell mid-function from gap
         f = fn_of(va)
         if f:
             start, name = f
@@ -499,27 +501,27 @@ def cmd_body(va: int, asm: bool) -> None:
                 addrs = _FUNCS_ADDRS or []
                 end = addrs[i] if i < len(addrs) else start + (1 << 30)
             if start < va < end:
-                print(f"# {va:#x} é mid-function de {name} @ {start:#x} (+{va - start:#x}); corpo inteiro:")
+                print(f"# {va:#x} is mid-function of {name} @ {start:#x} (+{va - start:#x}); full body:")
                 body = idx.load_asm(start) if asm else idx.load_decomp(start)
                 if body is not None:
                     print(body)
                     return
             else:
-                print(f"# {va:#x} está em GAP (após {name} @ {start:#x}, fim {end:#x}) — "
-                      f"função NÃO catalogada pelo dumper; disassemblando in loco:")
+                print(f"# {va:#x} is in a GAP (after {name} @ {start:#x}, end {end:#x}) — "
+                      f"function NOT catalogued by the dumper; disassembling in place:")
                 cmd_dis(va, 64)
                 return
-        print(f"não achou corpo de {va:#x} no corpus (usar disasm.py)")
+        print(f"body of {va:#x} not found in corpus (use disasm.py)")
         sys.exit(1)
     print(body)
 
 
 def _decode_mem(w: int) -> dict | None:
-    """Decodifica STR/LDR (uimm, int+SIMD), STP/LDP e STUR/LDUR.
+    """Decodes STR/LDR (uimm, int+SIMD), STP/LDP and STUR/LDUR.
 
-    Retorna {mnem, rt, rt2, rn, off} ou None. off é o offset de struct
-    (com sinal em stur/stp). Corrige o bug histórico: imm12 de SIMD/FP
-    (V=1) escala por size/16 igual ao int (str s em +0x368 era invisível).
+    Returns {mnem, rt, rt2, rn, off} or None. off is the struct offset
+    (signed in stur/stp). Fixes the historical bug: SIMD/FP imm12
+    (V=1) scales by size/16 like int (str s at +0x368 was invisible).
     """
     g = w & 0x3B000000
     rn = (w >> 5) & 0x1F
@@ -554,7 +556,7 @@ def _decode_mem(w: int) -> dict | None:
                 scale = 1 << size
                 cls = {0: "b", 1: "h", 2: "s", 3: "d"}[size]
             is_load = opc & 1
-            mnem = "ldr" if is_load else "str"   # sem sufixo: a classe do reg já diz a largura
+            mnem = "ldr" if is_load else "str"   # no suffix: register class carries width
         off = ((w >> 10) & 0xFFF) * scale
         return {"mnem": mnem, "rt": _reg(cls, rt), "rt2": None, "rn": rn, "off": off}
     if g in (0x29000000, 0x2D000000):            # pair (stp/ldp, 3 modos de indexing)
@@ -627,7 +629,7 @@ def _scan_mem(imm: int, load: bool):
     end = min(tf + ts, len(d)) & ~3
     words = struct.unpack_from(f"<{end // 4}I", d, 0)
     for i, w in enumerate(words):
-        if ((w >> 27) & 7) not in (0b101, 0b111):   # fast reject: só grupos load/store
+        if ((w >> 27) & 7) not in (0b101, 0b111):   # fast reject: load/store groups only
             continue
         mi = _decode_mem(w)
         if mi is None or mi["off"] != imm:
@@ -638,10 +640,10 @@ def _scan_mem(imm: int, load: bool):
 
 
 def _parse_range(tok: str) -> tuple[int, int]:
-    """'0xA..0xB' → (lo, hi) em VA; lados < BASE são tratados como offset de módulo."""
+    """'0xA..0xB' → (lo, hi) in VAs; sides < BASE are treated as module offsets."""
     lo_s, sep, hi_s = tok.partition("..")
     if not sep:
-        raise ValueError(f"range inválido: {tok} (use A..B)")
+        raise ValueError(f"invalid range: {tok} (use A..B)")
     lo, hi = int(lo_s, 16), int(hi_s, 16)
     if lo < BASE:
         lo += BASE
@@ -689,7 +691,7 @@ def cmd_offset(imm: int, load: bool, msub: str | None = None,
 # ---------------------------------------------------------------- bit query
 
 def _decode_logimm(w: int):
-    """AND/ORR/EOR/ANDS por imediato lógico → (nome, mask, rd, sf) ou None."""
+    """Logical-immediate AND/ORR/EOR/ANDS → (name, mask, rd, sf) or None."""
     if ((w >> 23) & 0x3F) != 0b100100:
         return None
     sf = (w >> 31) & 1
@@ -735,7 +737,7 @@ def _decode_movwide(w: int):
 
 
 def _writes_reg(w: int) -> bool:
-    """Heurística: palavra escreve em Rd (bits 4:0) — exclui branches."""
+    """Heuristic: word writes Rd (bits 4:0) — excludes branches."""
     if (w & 0x7C000000) in (0x14000000, 0x94000000):     # b / bl
         return False
     if (w & 0x7E000000) in (0x34000000, 0x36000000):     # cbz/cbnz, tbz/tbnz
@@ -752,7 +754,7 @@ def _def_verdict(w: int, rt: str, bit: int):
         if mi["rt2"]:                                   # stp/ldp: pula
             return "no", None
         if mi["rt"] == rt:
-            return ("def", "carregado da memória (ldr)") if mi["mnem"][:2] == "ld" else ("no", None)
+            return ("def", "loaded from memory (ldr)") if mi["mnem"][:2] == "ld" else ("no", None)
         return "no", None                               # mem op n define rt
     li = _decode_logimm(w)
     if li:
@@ -785,13 +787,13 @@ def _def_verdict(w: int, rt: str, bit: int):
         if name == "movn":
             val ^= 1
         return "def", f"OVERWRITE bit={val} ({name})"
-    # outro writer de Rd (bits 4:0 == número do rt)
+    # another writer of Rd (bits 4:0 == rt number)
     try:
         rt_num = int(rt[1:])
     except ValueError:
         return "no", None
     if (w & 0x1F) == rt_num and rt[0] in "wx" and _writes_reg(w):
-        return "def", "def não-imediato (aritm/etc)"
+        return "def", "non-immediate def (arith/etc)"
     return "no", None
 
 
@@ -808,7 +810,7 @@ def cmd_bit(imm: int, bit: int, rng: tuple[int, int] | None = None) -> None:
     for va, mi in _scan_mem(imm, load=False):
         if rng and not (rng[0] <= va <= rng[1]):
             continue
-        if mi["rt2"]:                       # pares: bit ambíguo entre rt/rt2
+        if mi["rt2"]:                       # pairs: ambiguous bit between rt/rt2
             continue
         mn = mi["mnem"]
         width = (1 if mn.endswith("b") else 2 if mn.endswith("h")
@@ -829,9 +831,9 @@ def cmd_bit(imm: int, bit: int, rng: tuple[int, int] | None = None) -> None:
                     verdict, dva = v, va - back * 4
                     break
                 if kind == "pass":
-                    continue                # orr/and/eor sem afetar o bit: segue atrás
+                    continue                # orr/and/eor not affecting the bit: keep looking
             if verdict is None:
-                verdict = "def não achado (≤16 instr)"
+                verdict = "def not found (≤16 insns)"
         stats[verdict] = stats.get(verdict, 0) + 1
         where = f"  def@{dva:#x}" if dva else ""
         wb = mi.get("wb")
@@ -855,8 +857,8 @@ _RELOC_KEYS = None       # slots ordenados
 def _relocs():
     """Tabela de relocations do NSO: triplets 0x18 (r_offset, 0x403, addend).
 
-    Clusters contíguos (stride 0x18, ≥2 records) — mata falso-positivo
-    aleatório em rodata. r_offset/addend são offsets relativos ao BASE.
+    Contiguous clusters (stride 0x18, ≥2 records) — kills random
+    false-positives in rodata. r_offset/addend are offsets relative to BASE.
     """
     global _RELOC_TABLE, _RELOC_KEYS
     if _RELOC_TABLE is not None:
@@ -867,7 +869,7 @@ def _relocs():
     da_f, da_m, da_s = struct.unpack_from("<III", d, 0x30)
     slo, shi = da_m, da_m + da_s
     n8 = len(d) // 8
-    recs = []                          # (índice qword do info, slot, addend)
+    recs = []                          # (info qword index, slot, addend)
     pat = struct.pack("<Q", 0x403)
     pos = 0
     while True:
@@ -876,7 +878,7 @@ def _relocs():
             break
         pos = i + 1
         if i % 8:
-            continue                   # desalinhado: não é triplet válido
+            continue                   # misaligned: not a valid triplet
         qi = i // 8
         if 0 < qi < n8 - 1:
             slot = struct.unpack_from("<Q", d, (qi - 1) * 8)[0]
@@ -919,12 +921,12 @@ _INV_SLOTS: dict[int, int] | None = None
 
 
 def _inventory_slots(va: int) -> int | None:
-    """Nº de slots da vtable em va segundo o inventário mecânico (cluster).
+    """Number of vtable slots at va per the mechanical inventory (cluster).
 
     Fonte autoritativa da FRONTEIRA de cada vtable (vtables-inventory.json,
-    clusterização por relocations). Auto-detect (_vtable_slots max_slots=0) vaza
-    por vtables densas do bloco físico (gap≤2 nunca fecha); o cluster exato é o
-    teto correto. None = AP não está no inventário (vtable pequena/sem cluster).
+    relocation clustering). Auto-detect (_vtable_slots max_slots=0) leaks
+    through dense vtables of the physical block (gap≤2 never closes); the exact
+    cluster is the correct ceiling. None = AP not in the inventory (small/no cluster).
     """
     global _INV_SLOTS
     if _INV_SLOTS is None:
@@ -939,10 +941,10 @@ def _inventory_slots(va: int) -> int | None:
 def _vtable_slots(va: int, max_slots: int = 0) -> list[tuple[int, int]]:
     """Slots (slot_va, target_va) de uma vtable em va — via relocations.
 
-    Vtables MK8DX são arrays de qwords relocados: cada slot aponta pra função.
-    Tolerante a gaps ≤2 slots (pares dtor Itanium / espaço reservado).
+    MK8DX vtables are relocated qword arrays: each slot points to a function.
+    Tolerates gaps ≤2 slots (Itanium dtor pairs / reserved space).
     Para em: gap ≥3, alvo fora de .text (typeinfo/dado), ou max_slots.
-    Regiões compactas (sem RTTI) não têm fronteira nítida — use max_slots.
+    Compact regions (no RTTI) have no sharp boundary — use max_slots.
     """
     if (va, max_slots) in _VT_CACHE:
         return _VT_CACHE[(va, max_slots)]
@@ -952,7 +954,7 @@ def _vtable_slots(va: int, max_slots: int = 0) -> list[tuple[int, int]]:
     tm, tf, ts = struct.unpack_from("<III", _DATA, 0x10)
     text_end = BASE + tm + ts
     out: list[tuple[int, int]] = []
-    m = va - BASE                     # chaves da tabela são mem offsets
+    m = va - BASE                     # table keys are mem offsets
     gap = 0
     while max_slots == 0 or len(out) < max_slots:
         if m in table:
@@ -986,7 +988,7 @@ def _load_vt_registry() -> None:
 
 
 def _vt_name_for_vtable(va: int) -> str | None:
-    """Nome curto do registry de vtables se va for registrado; senão None."""
+    """Short vtable-registry name if va is registered; else None."""
     _load_vt_registry()
     assert _VT_REGISTRY is not None
     for nm, ent in _VT_REGISTRY.items():
@@ -1011,7 +1013,7 @@ def _load_ctors() -> None:
 
 
 def _ctor_name_for_va(va: int) -> str | None:
-    """Nome curto do registry se o ctor em va tiver nome; senão None."""
+    """Short registry name if the ctor at va is named; else None."""
     _load_ctors()
     for nm, ent in (_CTORS or {}).items():
         if ent.get("va") == f"{va:x}":
@@ -1020,9 +1022,9 @@ def _ctor_name_for_va(va: int) -> str | None:
 
 
 def cmd_ctor(va: int, json_out: bool = False, list_all: bool = False) -> None:
-    """Cadeia estática do ctor: holders -> vtables instaladas por campo.
+    """Static ctor chain: holders → vtables installed per field.
 
-    Padrão MK8DX (descoberto no ctor KartUnit): o ctor não materializa a
+    MK8DX pattern (found in the KartUnit ctor): the ctor doesn't materialize the
     vtable com adrp+add — carrega um HOLDER em .data (adrp+ldr PTR_DAT),
     cujo reloc resolve a base do bloco de vtables; add N + str [xN,#imm]
     instala a sub-vtable no campo do objeto.
@@ -1044,16 +1046,16 @@ def cmd_ctor(va: int, json_out: bool = False, list_all: bool = False) -> None:
     from shard_resolve import ShardIndex
     asm = ShardIndex().load_asm(va)
     if asm is None:
-        print(f"não achei corpo asm de {va:#x}")
+        print(f"asm body of {va:#x} not found")
         return
     tbl, _ = _relocs()
     vt_by_va = {int(e["va"], 16): nm for nm, e in _VT_REGISTRY.items()}
-    state: dict[str, int] = {}        # reg -> VA base (pós adrp/ldr/add)
+    state: dict[str, int] = {}        # reg → VA base (after adrp/ldr/add)
     holder_info: dict[str, tuple[int, int]] = {}  # reg -> (holder_va, reloc_alvo)
     installs: list[tuple[int, int, str]] = []     # (field_off, vtable_va, holder)
     calls: list[tuple[int, str]] = []             # (alvo, nome)
     new_sizes: list[tuple[int, str]] = []         # (tamanho, alvo bl)
-    this_regs: set[str] = {"0", "19", "20"}       # x0/x19/x20 = this (convenção clang)
+    this_regs: set[str] = {"0", "19", "20"}       # x0/x19/x20 = this (clang convention)
     last_mov_x0: int | None = None
     line_re = _get_asm_line_re()
     for line in asm.splitlines():
@@ -1080,7 +1082,7 @@ def cmd_ctor(va: int, json_out: bool = False, list_all: bool = False) -> None:
         last_mov_x0 = None
         _ctor_step(mnem, ops, state, holder_info, installs, calls, new_sizes,
                    tbl, vt_by_va, this_regs)
-    # relatório (dedup preservando ordem)
+    # report (dedup preserving order)
     print(f"# ctor {name_of(va)} @ {va:#x}")
     reg_nm = _ctor_name_for_va(va)
     if reg_nm:
@@ -1093,7 +1095,7 @@ def cmd_ctor(va: int, json_out: bool = False, list_all: bool = False) -> None:
     vt_installs = [x for x in uniq if x[1] >= 0x7101000000]
     data_installs = [x for x in uniq if x[1] < 0x7101000000]
     if vt_installs:
-        print(f"  {len(vt_installs)} instalações de vtable (holder -> reloc):")
+        print(f"  {len(vt_installs)} vtable installs (holder → reloc):")
         for off, vt_va, holder in vt_installs:
             nm = vt_by_va.get(vt_va) or ""
             b = f" {nm}" if nm else ""
@@ -1106,14 +1108,14 @@ def cmd_ctor(va: int, json_out: bool = False, list_all: bool = False) -> None:
         named = [f"{t:#x} {nm}" for t, nm in calls if nm and nm != f"FUN_{t:x}"]
         if named:
             print(f"  calls nomeados: {', '.join(named[:8])}")
-    # dtor: NÃO detectável mecanicamente neste binário — os 16 VAs de
-    # operator.delete têm ZERO callers no corpus inteiro (grep colado,
-    # shard-*-asm); desalocação vai pelo allocator da engine (sead-style),
-    # ainda não identificado. Convenção Itanium (slots 0/1) NÃO vale aqui:
+    # dtor: NOT mechanically detectable in this binary — the 16
+    # operator.delete VAs have ZERO callers in the whole corpus (verified grep,
+    # shard-*-asm); deallocation goes through the engine allocator (sead-style),
+    # still unidentified. The Itanium convention (slots 0/1) does NOT hold here:
     # KartUnit e BoostController compartilham slots 0/1 (herdados da base
-    # comum) e slot 1 é um accessor lazy-init (__cxa_guard), não D0.
+    # pattern) and slot 1 is a lazy-init accessor (__cxa_guard), not D0.
     if not installs and not new_sizes and not calls:
-        print("  (nenhuma instalação via holder detectada — adrp+add direto?)")
+        print("  (no holder-based installs detected — direct adrp+add?)")
 
 
 def _get_asm_line_re():
@@ -1132,7 +1134,7 @@ def _ctor_step(mnem: str, ops: str, state, holder_info, installs, calls, new_siz
 
     state: reg->VA; holder_info: reg->(holder_va, reloc_alvo); this_regs: regs
     que recebem o ponteiro do objeto (x0-x3 na entrada + callee-saveds que
-    recebem cópia dele). Instalação = str de valor-holder em [this,#imm].
+    receive a copy of it). Install = store of holder-value into [this,#imm].
     """
     import re as _re
     parts = [p.strip() for p in ops.split(",")]
@@ -1150,7 +1152,7 @@ def _ctor_step(mnem: str, ops: str, state, holder_info, installs, calls, new_siz
         return
 
     if mnem == "ldr":
-        # ldr x8,[x8,#imm] — se a base é .data e o reloc resolve, vira holder
+        # ldr x8,[x8,#imm] — if the base is .data and the reloc resolves, it's a holder
         mb = _re.search(r"\[([^\]]*)\]", ops)
         if not mb:
             return
@@ -1189,7 +1191,7 @@ def _ctor_step(mnem: str, ops: str, state, holder_info, installs, calls, new_siz
         return
 
     if mnem == "str":
-        # instalação: str xVal,[xThis,#imm] com xVal vindo de holder
+        # install: str xVal,[xThis,#imm] with xVal coming from a holder
         br = _re.search(r"\[([^\]]*)\]", ops)
         if not br:
             return
@@ -1214,7 +1216,7 @@ def _ctor_step(mnem: str, ops: str, state, holder_info, installs, calls, new_siz
             calls.append((int(t, 0), name_of(int(t, 0))))
         return
 
-    # invalidação genérica: qualquer outro mnem que escreve dst0 mata o estado dele
+    # generic invalidation: any other mnemonic writing dst0 kills its state
     WRITES = {
         "mov", "movz", "movn", "movk", "orr", "and", "ands", "eor", "sub", "subs",
         "add", "adds", "lsl", "asr", "lsr", "mul", "madd", "csel", "csinc",
@@ -1227,14 +1229,14 @@ def _ctor_step(mnem: str, ops: str, state, holder_info, installs, calls, new_siz
 
 
 def cmd_vtable(va: int, json_out: bool = False, max_slots: int = 0, list_all: bool = False) -> None:
-    """Dump de vtable: slots, funções e nomes curtos."""
+    """Vtable dump: slots, functions and short names."""
     _load_vt_registry()
     assert _VT_REGISTRY is not None
     if list_all:
         for nm, ent in sorted(_VT_REGISTRY.items()):
             print(f"  {ent['va']}  {nm}  ({ent.get('class', '?')}) — {ent.get('doc', '?')}")
         return
-    # nome do registry de vtables carrega o tamanho canônico
+    # the vtable registry name carries the canonical size
     reg_nm = _vt_name_for_vtable(va)
     if reg_nm and max_slots == 0:
         ent = _VT_REGISTRY[reg_nm]
@@ -1242,7 +1244,7 @@ def cmd_vtable(va: int, json_out: bool = False, max_slots: int = 0, list_all: bo
             max_slots = int(ent["slots"])
     slots = _vtable_slots(va, max_slots)
     if not slots:
-        print(f"nenhuma relocation em {va:#x} — não é vtable (ou início errado)")
+        print(f"no relocations at {va:#x} — not a vtable (or wrong start)")
         sys.exit(1)
     print(f"# vtable @ {va:#x} — {len(slots)} slots")
     if reg_nm:
@@ -1272,10 +1274,10 @@ _BLR_CACHE: list[tuple[int, str, int | None]] | None = None
 def _blr_scan() -> list[tuple[int, str, int | None]]:
     """Todos os dispatch virtuais (BLR) em .text: (site_va, reg, slot_off|None).
 
-    Resolve o slot-offset do padrão ldr Xn,[Xm](vptr) → ldr Xn,[Xn,#off](slot) →
-    blr Xn. Escaneia por máscara de opcode (0xD63F0000), disasm capstone da
-    janela anterior. slot_off = None = blr de ponteiro (não vtable dispatch) ou
-    sem ldr self-referential na janela. ~1s, cache em memória.
+    Resolves the slot-offset of the pattern ldr Xn,[Xm](vptr) → ldr Xn,[Xn,#off](slot) →
+    blr Xn. Scans by opcode mask (0xD63F0000), capstone disasm of the
+    previous window. slot_off = None = pointer BLR (not vtable dispatch) or
+    no self-referential ldr in the window. ~1s, in-memory cache.
     """
     global _BLR_CACHE
     if _BLR_CACHE is not None:
@@ -1318,11 +1320,11 @@ def _blr_scan() -> list[tuple[int, str, int | None]]:
 
 
 def cmd_vtable_callers(va: int, max_slots: int = 0) -> None:
-    """BL + BLR callers por slot de uma vtable: quem chama cada método.
+    """BL + BLR callers per vtable slot: who calls each method.
 
     Para cada slot: (a) BL callers diretos (rex callers do alvo), (b) BLR sites
-    cujo slot-offset == offset do slot (dispatch virtual indireto). BLR é
-    candidato (qualquer vtable com o mesmo offset despacha igual); BL é exato.
+    whose slot-offset == the slot's offset (indirect virtual dispatch). BLR is
+    a candidate (any vtable with the same offset dispatches the same); BL is exact.
     """
     _load_vt_registry()
     assert _VT_REGISTRY is not None
@@ -1337,17 +1339,17 @@ def cmd_vtable_callers(va: int, max_slots: int = 0) -> None:
                 max_slots = inv   # fronteira exata do cluster
     slots = _vtable_slots(va, max_slots)
     if not slots:
-        print(f"nenhuma relocation em {va:#x} — não é vtable (ou início errado)")
+        print(f"no relocations at {va:#x} — not a vtable (or wrong start)")
         sys.exit(1)
     blr = _blr_scan()
     _load_names()
-    print(f"# vtable @ {va:#x} — {len(slots)} slots  ({reg_nm or 'não registrada'})")
-    # índice BLR por offset para lookup rápido
+    print(f"# vtable @ {va:#x} — {len(slots)} slots  ({reg_nm or 'unregistered'})")
+    # BLR index by offset for fast lookup
     by_off: dict[int, list[tuple[int, str]]] = {}
     for site, reg, off in blr:
         if off is not None:
             by_off.setdefault(off, []).append((site, reg))
-    # índice BL por alvo (uma única varredura de .text, não por slot)
+    # BL index by target (single .text scan, not per slot)
     d = _DATA
     assert d is not None
     tfo, tmo, ts = struct.unpack_from("<III", d, 0x10)
@@ -1365,7 +1367,7 @@ def cmd_vtable_callers(va: int, max_slots: int = 0) -> None:
         if _INSNS:
             f = fn_of(src)
             if not (f and src < f[0] + _INSNS.get(f[0], 0) * 4):
-                continue   # gap: literal/dado, não call
+                continue   # gap: literal/data, not a call
         bl_by_tgt.setdefault(tgt, []).append(src)
     for s, t in slots:
         off = s - va
@@ -1399,18 +1401,18 @@ def cmd_blr(va: int, list_all: bool = False) -> None:
         return
     hit = [x for x in blr if x[0] == va]
     if not hit:
-        print(f"{va:#x} não é um site BLR em .text")
+        print(f"{va:#x} is not a BLR site in .text")
         sys.exit(1)
     site, reg, off = hit[0]
     _load_vt_registry()
     assert _VT_REGISTRY is not None
     print(f"# BLR @ {site:#x}  blr {reg}   {name_of(site)}")
     if off is None:
-        print("# sem ldr self-referential na janela — não é vtable dispatch clássico "
-              "(ou ponteiro de função)")
+        print("# no self-referential ldr in the window — not a classic vtable dispatch "
+              "(or a function pointer)")
         return
     print(f"# slot-offset {off:#x}")
-    # vtables curadas com um slot nesse offset
+    # curated vtables with a slot at this offset
     cands = []
     for nm, ent in _VT_REGISTRY.items():
         vva = int(ent["va"], 16)
@@ -1424,7 +1426,7 @@ def cmd_blr(va: int, list_all: bool = False) -> None:
             print(f"  {nm:<26} {vva:#x}  {ent.get('class','')[:48]}")
     else:
         print(f"# nenhuma vtable curada tem slot em {off:#x} "
-              "(offset genérico compartilhado ou vtable não registrada)")
+              "(shared generic offset or unregistered vtable)")
 
 
 def cmd_reloc(va: int, n: int = 16, back: int = 0, reverse: bool = False) -> None:
@@ -1449,7 +1451,7 @@ def cmd_reloc(va: int, n: int = 16, back: int = 0, reverse: bool = False) -> Non
         print(f"# sem relocations a partir de {va:#x}")
         return
     if m not in table:
-        print(f"# AVISO: {va:#x} não é slot relocated — dumpando a partir do próximo")
+        print(f"# WARNING: {va:#x} is not a relocated slot — dumping from the next one")
     shown = 0
     while i < len(keys) and shown < n:
         slot = keys[i]
@@ -1467,7 +1469,7 @@ _NAMES_R: dict[str, str] | None = None # VA -> nome curto
 
 
 def _load_names() -> None:
-    """Carrega data/function-names.json (registry de nomes curtos)."""
+    """Loads data/function-names.json (short-name registry)."""
     global _NAMES, _NAMES_R
     if _NAMES is not None:
         return
@@ -1528,7 +1530,7 @@ def _load_enums() -> None:
 
 def _parse_va(tok: str) -> int:
     """Aceita '0x7100181d04', '7100181d04', 'FUN_7100181d04', 'sub_7100181d04',
-    nome curto dos registries (função 'CoinAdd', vtable 'vt_*', global 'KartHolder',
+    short name from the registries (function 'CoinAdd', vtable 'vt_*', global 'KartHolder',
     enum 'state_byte.0x07')."""
     _load_names()
     _load_vt_registry()
@@ -1615,7 +1617,7 @@ def cmd_str(va: int) -> None:
 
 
 def cmd_findstr(needle: str) -> None:
-    """Busca reversa: todas as ocorrências da substring nos segmentos, com VA."""
+    """Reverse search: all substring occurrences in the segments, with VAs."""
     _load()
     d = _DATA
     assert d is not None
@@ -1635,7 +1637,7 @@ def cmd_findstr(needle: str) -> None:
         print(f"  {va:#x}  {s[:120].decode('ascii', 'replace')!r}")
         hits += 1
         start = i + 1
-    print(f"# {hits} ocorrências de {raw!r}" + ("  (limite 50)" if hits == 50 else ""))
+    print(f"# {hits} occurrences of {raw!r}" + ("  (limit 50)" if hits == 50 else ""))
 
 
 def file_to_va(fo: int) -> int | None:
@@ -1687,14 +1689,14 @@ def cmd_adrp(target: int) -> None:
                 va = BASE + i * 4 - HDR
                 print(f"  {va:#x}  adrp+ldr → {target:#x}  <{name_of(va)}>")
                 hits += 1
-    print(f"# {hits} materializações de {target:#x}")
+    print(f"# {hits} materializations of {target:#x}")
 
 
 # ---------------------------------------------------------------- ptr / xref
 
 def cmd_ptr(va: int) -> None:
-    """Resolve um ponteiro em .data/.rodata: lê o qword no VA e identifica o alvo
-    (função / vtable registrada / global / string). Cobre o workaround recorrente
+    """Resolves a pointer in .data/.rodata: reads the qword at the VA and identifies the target
+    (function / registered vtable / global / string). Covers the recurring workaround
     de `struct.unpack('<Q', d, m2f(va))` + decodificar BASE+val manualmente."""
     _load()
     assert _DATA is not None
@@ -1709,7 +1711,7 @@ def cmd_ptr(va: int) -> None:
     holder = (_GLOBALS_R or {}).get(f"{va:x}")
     print(f"# {holder or 'PTR_DAT_' + f'{va:x}'} @ {va:#x} = {val:#x}")
     if val >= 0x2000000:
-        print(f"  (valor absoluto, não offset NSO — não é ponteiro relativo)")
+        print(f"  (absolute value, not an NSO offset — not a relative pointer)")
         return
     tgt = BASE + val
     f = fn_of(tgt)
@@ -1717,7 +1719,7 @@ def cmd_ptr(va: int) -> None:
         short = (_NAMES_R or {}).get(f"{tgt:x}")
         print(f"  → {tgt:#x}  {short or f[1]}")
         return
-    # vtable pode estar no próprio tgt OU +0x10 (padrão RTTI: holder aponta
+    # the vtable may be at tgt itself OR +0x10 (RTTI pattern: holder points
     # 2 qwords antes dos slots; ctor instala `PTR_DAT + 0x10`)
     tbl, _ = _relocs()
     for cand, lbl in ((tgt, ""), (tgt + 0x10, "holder+0x10")):
@@ -1728,7 +1730,7 @@ def cmd_ptr(va: int) -> None:
         slots = _vtable_slots(cand, 3)
         if slots:
             first = slots[0][0]
-            tag = f"vtable (não registrada, {len(slots)}+ slots)"
+            tag = f"vtable (unregistered, {len(slots)}+ slots)"
             if lbl:
                 tag += f"  (holder aponta {lbl})"
             print(f"  → {first:#x}  {tag}")
@@ -1744,12 +1746,12 @@ def cmd_ptr(va: int) -> None:
         if s and all(32 <= b < 127 for b in s):
             print(f"  → {tgt:#x}  string {s.decode()!r}")
             return
-    print(f"  → {tgt:#x}  (não identificado — conferir com rodata/dis)")
+    print(f"  → {tgt:#x}  (unidentified — check with rodata/dis)")
 
 
 def cmd_xref(va: int, limit: int = 200) -> None:
-    """Quem referencia um VA/global no corpus (decomp-full + asm-full, que têm os
-    símbolos Ghidra DAT_/PTR_DAT_ e os hex crus). Mostra arquivo:linha + função
+    """Who references a VA/global in the corpus (decomp-full + asm-full, which have the
+    Ghidra DAT_/PTR_DAT_ symbols and the raw hex). Shows file:line + function
     contendo. Cobre o workaround de `grep -rn 'PTR_DAT_xxx' decomp-full/`."""
     _load_globals()
     _load_names()
@@ -1778,18 +1780,18 @@ def cmd_xref(va: int, limit: int = 200) -> None:
                             print(f"  ... (limite {limit})")
                             return
     if hits == 0:
-        print(f"# nenhuma referência a {va:#x} no corpus")
+        print(f"# no references to {va:#x} in the corpus")
         sys.exit(1)
-    print(f"# {hits} referências a {va:#x}")
+    print(f"# {hits} references to {va:#x}")
 
 
 # ---------------------------------------------------------------- headers
 
-_HEADERS: object = False   # False=não carregado, None=indisponível, HeadersDB=ok
+_HEADERS: object = False   # False=not loaded, None=unavailable, HeadersDB=ok
 
 
 def _load_headers() -> None:
-    """HeadersDB dos headers .hpp — config REX_HEADERS (env > ~/.rexrc)."""
+    """HeadersDB of .hpp headers — config REX_HEADERS (env > ~/.rexrc)."""
     global _HEADERS
     if _HEADERS is not False:
         return
@@ -1802,7 +1804,7 @@ def _load_headers() -> None:
         from headers_parser import HeadersDB
         _HEADERS = HeadersDB(d)
     except Exception as e:
-        print(f"# headers indisponíveis ({e})")
+        print(f"# headers unavailable ({e})")
         _HEADERS = None
 
 
@@ -1811,7 +1813,7 @@ def cmd_headers(query: str) -> None:
     `rex headers <StructName>` — dump da struct (campos + offsets)."""
     _load_headers()
     if _HEADERS is None:
-        sys.exit("ERRO: headers não encontrados — sete REX_HEADERS (dir include/)")
+        sys.exit("ERROR: headers not found — set REX_HEADERS (include/ dir)")
     db = _HEADERS
     if query.startswith(("0x", "+0x")) or query.lstrip("0x7100").isdigit() is False and re.fullmatch(r"[0-9a-fA-F]+", query):
         try:
@@ -1821,16 +1823,16 @@ def cmd_headers(query: str) -> None:
         if off is not None:
             hits = db.owners_at(off)
             if not hits:
-                print(f"# offset +{off:#x}: nenhum campo de header")
+                print(f"# offset +{off:#x}: no header field")
                 sys.exit(1)
             for s, f in hits:
                 print(f"  {s.name:32s} +{f.offset:#06x}  {f.type:24s} {f.name}")
-            print(f"# {len(hits)} structs têm campo em +{off:#x} ({db.summary()})")
+            print(f"# {len(hits)} structs have a field at +{off:#x} ({db.summary()})")
             return
     s = db.structs.get(query)
     if not s:
         near = [n for n in db.structs if query.lower() in n.lower()][:8]
-        print(f"struct não achada: {query}" + (f" — parecidas: {', '.join(near)}" if near else ""))
+        print(f"struct not found: {query}" + (f" — parecidas: {', '.join(near)}" if near else ""))
         sys.exit(1)
     print(f"== {s.name}  ({Path(s.file).name}; {len(s.fields)} campos)")
     for f in s.fields:
@@ -1838,7 +1840,7 @@ def cmd_headers(query: str) -> None:
 
 
 def cmd_fn_range(lo: int, hi: int) -> None:
-    """Lista funções catalogadas com start em [lo, hi]."""
+    """Lists catalogued functions with start in [lo, hi]."""
     _load()
     _load_names()
     assert _FUNCS is not None
@@ -1848,31 +1850,31 @@ def cmd_fn_range(lo: int, hi: int) -> None:
             short = (_NAMES_R or {}).get(f"{a:x}")
             print(f"  {a:#x}  {short or nm}")
             n += 1
-    print(f"# {n} funções em [{lo:#x}, {hi:#x}]")
+    print(f"# {n} functions in [{lo:#x}, {hi:#x}]")
 
 
-# ------------------------------------------------------------- shards (geração)
+# ------------------------------------------------------------- shards (generation)
 
 def cmd_shards(target: str = "all", force: bool = False) -> None:
-    """Gera o corpus (shards) via Ghidra headless — a receita inteira.
+    """Generates the corpus (shards) via Ghidra headless — the whole recipe.
 
-    Passos:
-      1. limpa o cache OSGi (ClassNotFoundException em script modificado)
-      2. compila os geradores ($REX_DUMPERS/*.java) com o classpath do Ghidra
-      3. instala .java+.class em Extensions/SwitchLoader/ghidra_scripts do
-         usuário — o único local onde o OSGi resolve o bundle destes scripts
-         (builtin e ~/ghidra_scripts dão ClassNotFoundException; os dumps
-         históricos sempre rodaram daqui)
-      4. roda analyzeHeadless -noanalysis -postScript (cwd NEUTRO = /tmp) e
-         FALHA o exit se houver SCRIPT ERROR no log (o exit do headless mente)
+    Steps:
+      1. clears the OSGi cache (ClassNotFoundException on modified scripts)
+      2. compiles the dumpers ($REX_DUMPERS/*.java) with Ghidra's classpath
+      3. installs .java+.class into the user's Extensions/SwitchLoader/
+         ghidra_scripts — the only place OSGi resolves these scripts' bundle
+         (builtin and ~/ghidra_scripts give ClassNotFoundException; the
+         historical dumps always ran from here)
+      4. runs analyzeHeadless -noanalysis -postScript (NEUTRAL cwd = /tmp) and
+         FAILS the exit if SCRIPT ERROR appears in the log (headless exit lies)
          - decomp: FullDecompDump (~6 min, RESUME via functions.tsv)
          - asm:    FullAsmDump    (~100 s)
-    Saída em $REX_ROOT/data/{decomp,asm}-full/ (default = mk8dx-re).
+    Output in $REX_ROOT/data/{decomp,asm}-full/.
 
-    `target`: all | decomp | asm. `force`: ignora outputs existentes
-    (decomp tem RESUME — sem force, só completa faltantes).
+    `target`: all | decomp | asm. `force`: ignores existing outputs
+    (decomp has RESUME — without force, only completes missing ones).
 
-    Config (env > ~/.rexrc; ver rexconfig.py): REX_ROOT, REX_DUMPERS
+    Config (env > ~/.rexrc; see rexconfig.py): REX_ROOT, REX_DUMPERS
     (default $REX_ROOT/dumpers), REX_GHIDRA_PROJ (default
     $REX_ROOT/ghidra-project), REX_GPR (default MK8DX.gpr), REX_PROGRAM
     (default uncompressed_main), GHIDRA_HOME.
@@ -1882,17 +1884,17 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
     import subprocess
 
     home = Path(__file__).resolve().parent
-    # dumpers: config explícita é LEI (se setada e inválida → erro, sem fallback
-    # silencioso); default = $REX_ROOT/dumpers
+    # dumpers: explicit config is LAW (if set and invalid → error, no silent
+    # fallback); default = $REX_ROOT/dumpers
     dumpers_env = _cfg("REX_DUMPERS", "")
     if dumpers_env:
         gens = Path(dumpers_env).expanduser()
         if not (gens / "FullDecompDump.java").exists():
-            sys.exit(f"ERRO: REX_DUMPERS={gens} não tem FullDecompDump.java")
+            sys.exit(f"ERRO: REX_DUMPERS={gens} has no FullDecompDump.java")
     else:
         gens = _root() / "dumpers"
         if not (gens / "FullDecompDump.java").exists():
-            sys.exit("ERRO: dumpers/ não achado em $REX_ROOT — sete REX_DUMPERS "
+            sys.exit("ERROR: dumpers/ not found in $REX_ROOT — set REX_DUMPERS "
                      "(dir com FullDecompDump.java).")
 
     # defaults do ambiente local (Ghidra via Homebrew)
@@ -1903,7 +1905,7 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
     ]
     ghidra = next((Path(p) for p in ghidra_cand if p and Path(p).exists()), None)
     if ghidra is None:
-        sys.exit("ERRO: Ghidra não achado — sete GHIDRA_HOME (ex.: /opt/homebrew/Cellar/ghidra/12.1.2/libexec)")
+        sys.exit("ERROR: Ghidra not found — set GHIDRA_HOME (e.g. /opt/homebrew/Cellar/ghidra/12.1.2/libexec)")
     # projeto Ghidra: default = $REX_ROOT/ghidra-project; env separado p/
     # override (ex.: REX_ROOT scratch + projeto existente do repo principal)
     gpr = _cfg("REX_GPR", "MK8DX.gpr")
@@ -1911,18 +1913,18 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
     if proj_env:
         proj = Path(proj_env).expanduser()
         if not (proj / gpr).exists():
-            sys.exit(f"ERRO: REX_GHIDRA_PROJ={proj} não tem {gpr}")
+            sys.exit(f"ERROR: REX_GHIDRA_PROJ={proj} has no {gpr}")
     else:
         proj = _root() / "ghidra-project"
         if not (proj / gpr).exists():
-            sys.exit(f"ERRO: projeto Ghidra não achado — sete REX_GHIDRA_PROJ "
+            sys.exit(f"ERROR: Ghidra project not found — set REX_GHIDRA_PROJ "
                      f"(dir com {gpr}; default = $REX_ROOT/ghidra-project).")
     builtin = ghidra / "Ghidra" / "Features" / "Decompiler" / "ghidra_scripts"
     if not builtin.is_dir():
-        sys.exit(f"ERRO: dir built-in não existe: {builtin}")
+        sys.exit(f"ERROR: builtin dir does not exist: {builtin}")
 
     def _osgiclear(cls: str) -> None:
-        # cache OSGi (ClassNotFoundException em script modificado)
+        # OSGi cache (ClassNotFoundException on modified scripts)
         base = Path.home() / "Library" / "ghidra"
         n = 0
         for ver in sorted(base.glob("ghidra_*")) if base.is_dir() else []:
@@ -1934,15 +1936,15 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
                         n += 1
                     except OSError as e:
                         print(f"  SKIP {item.name}: {e}")
-        print(f"# cache OSGi limpo ({n} itens)")
+        print(f"# OSGi cache cleared ({n} items)")
 
     def _run_dump(cls: str, outdir: Path, resume_ok: bool) -> None:
         src = gens / f"{cls}.java"
         if not src.exists():
-            sys.exit(f"ERRO: gerador não encontrado: {src}")
+            sys.exit(f"ERROR: dumper not found: {src}")
         tsv = outdir / "functions.tsv"
         if resume_ok and tsv.exists() and not force:
-            print(f"# {cls}: RESUME — functions.tsv existe; completando faltantes")
+            print(f"# {cls}: RESUME — functions.tsv exists; completing missing ones")
         print(f"== {cls} → {outdir}")
         # 1. fantasmas + cache OSGi
         _osgiclear(cls)
@@ -1953,18 +1955,18 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
             ["javac", "-d", str(build), "-proc:none", "-cp", jars, str(src)],
             capture_output=True, text=True)
         if r.returncode != 0:
-            sys.exit(f"ERRO javac {cls}:\n{r.stdout}{r.stderr}")
-        # 3. instalar em Extensions/SwitchLoader/ghidra_scripts do usuário — o
-        #    ÚNICO local onde o OSGi resolve bundle p/ estes scripts neste setup
+            sys.exit(f"ERROR javac {cls}:\n{r.stdout}{r.stderr}")
+        # 3. install into the user's Extensions/SwitchLoader/ghidra_scripts —
+        #    the ONLY place OSGi resolves the bundle for these scripts in this setup
         #    (builtin e ~/ghidra_scripts → ClassNotFoundException; os dumps
-        #    históricos rodaram daqui). Sobrescrever com versão fresca elimina
-        #    o risco de cópia velha com path hardcoded.
+        #    historical dumps ran from here). Overwriting with a fresh copy
+        #    eliminates the risk of a stale copy with a hardcoded path.
         ext_dirs = sorted((Path.home() / "Library" / "ghidra").glob(
             "ghidra_*/Extensions/SwitchLoader/ghidra_scripts"))
         if not ext_dirs:
-            sys.exit("ERRO: ~/Library/ghidra/ghidra_*/Extensions/SwitchLoader/"
-                     "ghidra_scripts não existe — instale a ext SwitchLoader ou "
-                     "crie o dir.")
+            sys.exit("ERROR: ~/Library/ghidra/ghidra_*/Extensions/SwitchLoader/"
+                     "ghidra_scripts does not exist — install the SwitchLoader "
+                     "extension or create the dir.")
         ext = ext_dirs[-1]
         shutil.copy(src, ext / src.name)
         shutil.copy(build / f"{cls}.class", ext / f"{cls}.class")
@@ -1974,7 +1976,7 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
                gpr.removesuffix(".gpr"),
                "-process", program, "-noanalysis",
                "-postScript", cls]
-        # injeta config resolvida no env do subprocess (o Java não lê ~/.rexrc)
+        # inject resolved config into the subprocess env (Java doesn't read ~/.rexrc)
         sub_env = dict(os.environ)
         sub_env["REX_ROOT"] = str(_root())
         print(f"# {' '.join(cmd)}  (cwd=/tmp)")
@@ -1986,9 +1988,9 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
                 print(f"  {line.strip()[:160]}")
         if proc.returncode != 0 or "SCRIPT ERROR" in out:
             sys.exit(f"ERRO: analyzeHeadless {cls} falhou "
-                     f"(exit {proc.returncode}; SCRIPT ERROR no log)")
+                     f"(exit {proc.returncode}; SCRIPT ERROR in log)")
         shutil.rmtree(build, ignore_errors=True)
-        # saída do dump de progresso do Ghidra fica em ROOT/data/*/progress.log
+        # Ghidra progress dump output goes to ROOT/data/*/progress.log
 
     import tempfile
     if target in ("all", "decomp"):
@@ -2145,11 +2147,11 @@ def main() -> None:
                     raise ValueError(f"uso: rex shards [all|decomp|asm] [--force]")
             cmd_shards(target, force)
         else:
-            print(f"comando desconhecido: {cmd}")
+            print(f"unknown command: {cmd}")
             print(__doc__)
             sys.exit(2)
     except (ValueError, IndexError) as e:
-        print(f"erro de uso: {e}\n{__doc__}")
+        print(f"usage error: {e}\n{__doc__}")
         sys.exit(2)
 
 

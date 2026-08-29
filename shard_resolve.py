@@ -1,46 +1,46 @@
 #!/usr/bin/env python3
-"""Resolve funções do corpus mk8dx-re: endereço/nome → shard, corpo decomp/asm.
+"""Resolve functions from the corpus: address/name → shard, decomp/asm body.
 
-Dois corpus independentes com shard numeração distinta:
-  - decomp-full/: 500 funções/shard, 69 shards (shard-000..shard-068)
-  - asm-full/:   1000 funções/shard, 35 shards (shard-000..shard-034)
+Two independent corpora with distinct shard numbering:
+  - decomp-full/: 500 functions/shard, 69 shards (shard-000..shard-068)
+  - asm-full/:   1000 functions/shard, 35 shards (shard-000..shard-034)
 
-Os docs do projeto usam shard numbers do DECOMP por padrão.
-Exceções conhecidas (asm): FUN_710012792c (CoinGet effect) documentada como
-shard-002 = asm shard-002 (decomp correto = shard-004).
+Project docs use DECOMP shard numbers by default.
+Known exceptions (asm): FUN_710012792c (CoinGet effect) documented as
+shard-002 = asm shard-002 (correct decomp = shard-004).
 
-Uso:
+Usage:
     from shard_resolve import ShardIndex
-    idx = ShardIndex()                      # carrega TSVs uma vez
+    idx = ShardIndex()                      # loads TSVs once
 
-    # Resolve → ShardResult (por padrão: decomp)
+    # Resolve → ShardResult (decomp by default)
     idx.resolve(0x710004475c)                # -> ShardResult(name, shard, addr)
-    idx.resolve('FUN_710004475c')            # -> idem (por nome)
-    idx.resolve('shard-026')                 # -> primeira fn do shard-026
+    idx.resolve('FUN_710004475c')            # -> same (by name)
+    idx.resolve('shard-026')                 # -> first fn of shard-026
     idx.resolve('asm:shard-013')            # -> asm corpus, shard-013
 
-    # Corpo da função
-    idx.load_decomp(0x710004475c)             # -> corpo C (str)
-    idx.load_asm(0x710004475c)               # -> corpo asm (str)
+    # Function body
+    idx.load_decomp(0x710004475c)             # -> C body (str)
+    idx.load_asm(0x710004475c)               # -> asm body (str)
 
-    # Grep com contexto
-    idx.search_decomp(0x710004475c, '0x9c')  # -> linhas com '0x9c'
+    # Grep with context
+    idx.search_decomp(0x710004475c, '0x9c')  # -> lines containing '0x9c'
 
     # Shard info
     idx.functions_in_shard(26)               # -> [(addr, name), ...] (decomp)
     idx.functions_in_shard(13, 'asm')        # -> [(addr, name), ...] (asm)
 
-    # Ambos os shards pra uma função
+    # Both shards for a function
     idx.resolve_both(0x710004475c)           # -> (ShardResult, ShardResult)
 """
 from __future__ import annotations
+
 import re
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# rex vive em ~/projects/rex; dados do corpus ficam no ALVO — configurável via
-# rexconfig (env > ~/.rexrc), sem path de projeto no código.
+# rex lives in ~/projects/rex; corpus data lives in the TARGET — configured
+# via rexconfig (env > ~/.rexrc), no project paths in code.
 import rexconfig
 
 _DATA_DIR: Path | None = None
@@ -71,7 +71,7 @@ class ShardResult:
 
 
 class _CorpusIndex:
-    """Index para um único corpus (decomp ou asm)."""
+    """Index for a single corpus (decomp or asm)."""
 
     def __init__(self, tsv_path: Path, kind: str):
         self.kind = kind
