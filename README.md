@@ -73,25 +73,34 @@ Who invokes what:
 Setup (one-time):
 
 ```bash
-# 1. Ghidra + JDK 21
-brew install ghidra openjdk@21
+# 1. Ghidra 12.x + JDK 21
+#    Any OS: download from ghidra-sre.org and unzip, then set GHIDRA_HOME.
+#    macOS shortcut: brew install ghidra openjdk@21
+#    (Homebrew path: /opt/homebrew/Cellar/ghidra/<ver>/libexec)
 
-# 2. SwitchLoader extension -- clone & build against your Ghidra:
+# 2. SwitchLoader extension -- clone & build against your Ghidra
+#    (needs JDK 21 and the gradle wrapper; works on any OS):
 git clone https://github.com/borntohonk/Ghidra-Switch-Loader
 cd Ghidra-Switch-Loader
 git checkout 2c9357f        # commit validated with Ghidra 12.1.2
-gradle -PGHIDRA_INSTALL_DIR=/opt/homebrew/Cellar/ghidra/12.1.2/libexec
-# → produces a SwitchLoader-<ver>-Ghidra_12.1.2.zip in dist/
-# 3. Install it: Ghidra GUI → File → Install Extensions → + → the zip →
-#    restart Ghidra when prompted. (Or unzip straight into
-#    <GHIDRA_HOME>/Extensions/Ghidra/ -- that also works.)
+./gradlew -PGHIDRA_INSTALL_DIR=/path/to/ghidra
+# -> produces dist/SwitchLoader-<ver>-Ghidra_<ver>.zip
 
-# 4. uv (if you don't have it)
-brew install uv
+# 3. Install it (either way):
+#    a) Ghidra GUI: File -> Install Extensions -> (+) -> the zip, restart when
+#       prompted. (Needs a writable Ghidra install or user extensions dir.)
+#    b) Manual: unzip into <GHIDRA_INSTALL_DIR>/Extensions/Ghidra/
+#       (that's how this setup was validated)
+
+# 4. uv (any OS): https://docs.astral.sh/uv/getting-started/installation/
+#    macOS shortcut: brew install uv
+
+# 5. hactool (any OS, build from source): https://github.com/borntohonk/hactool
+#    nstool alternative (prebuilt binaries): https://github.com/jakcron/nstool
 ```
 
-Capstone (`brew install capstone`) is only needed if you compile hactool
-from source on macOS.
+Capstone (`brew install capstone`, or your distro's `libcapstone-dev`) is
+only needed to compile hactool from source.
 
 ## New project, from zero
 

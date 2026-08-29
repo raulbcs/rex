@@ -58,7 +58,8 @@ rex shards [all|decomp|asm] [--force]
 
 Pipeline per dumper: clear OSGi cache → `javac` with Ghidra's full jar
 classpath → install `.java`+`.class` into the user's
-`~/Library/ghidra/ghidra_*/Extensions/SwitchLoader/ghidra_scripts/` → run
+`ghidra_*/Extensions/SwitchLoader/ghidra_scripts/` (under the Ghidra user
+settings dir: `~/Library/ghidra` on macOS, `~/.ghidra` elsewhere) → run
 `analyzeHeadless <proj> -process <program> -noanalysis -postScript <Dumper>`
 from a neutral cwd (`/tmp`) → fail on `SCRIPT ERROR` in the log.
 

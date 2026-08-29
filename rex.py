@@ -1955,16 +1955,28 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
             capture_output=True, text=True)
         if r.returncode != 0:
             sys.exit(f"ERROR javac {cls}:\n{r.stdout}{r.stderr}")
-        # 3. install into the user's Extensions/SwitchLoader/ghidra_scripts --
-        #    the ONLY place OSGi resolves the bundle for these scripts in this setup
-        #    (builtin e ~/ghidra_scripts → ClassNotFoundException; os dumps
-        #    historical dumps ran from here). Overwriting with a fresh copy
-        #    eliminates the risk of a stale copy with a hardcoded path.
-        ext_dirs = sorted((Path.home() / "Library" / "ghidra").glob(
-            "ghidra_*/Extensions/SwitchLoader/ghidra_scripts"))
+        # 3. install into the user's SwitchLoader extension ghidra_scripts dir --
+        #    the ONLY place OSGi resolves the bundle for these scripts in this
+        #    setup (builtin and ~/ghidra_scripts give ClassNotFoundException;
+        #    historical dumps always ran from here). Overwriting with a fresh
+        #    copy eliminates the risk of a stale copy with a hardcoded path.
+        #    User settings dir is OS-specific: macOS ~/Library/ghidra,
+        #    Linux/other ~/.ghidra, Windows %APPDATA%/ghidra.
+        home = Path.home()
+        bases = [home / "Library" / "ghidra", home / ".ghidra"]
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            bases.append(Path(appdata) / "ghidra")
+        ext_dirs = sorted({
+            d
+            for base in bases
+            for d in base.glob("ghidra_*/Extensions/SwitchLoader/ghidra_scripts")
+            if d.is_dir()
+        })
         if not ext_dirs:
-            sys.exit("ERROR: ~/Library/ghidra/ghidra_*/Extensions/SwitchLoader/"
-                     "ghidra_scripts does not exist -- install the SwitchLoader "
+            sys.exit("ERROR: no ghidra_*/Extensions/SwitchLoader/ghidra_scripts "
+                     "under the Ghidra user settings dir (~/Library/ghidra on "
+                     "macOS, ~/.ghidra elsewhere) -- install the SwitchLoader "
                      "extension or create the dir.")
         ext = ext_dirs[-1]
         shutil.copy(src, ext / src.name)
