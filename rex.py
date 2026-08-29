@@ -51,6 +51,19 @@ from pathlib import Path
 import os
 import rexconfig
 
+
+# Exit codes: 0 ok; 1 no results (search-style); 2 usage; 3 config; 4 tool failure
+class RexUsageError(Exception):
+    """Bad command line (exit 2)."""
+
+
+class RexConfigError(Exception):
+    """Bad or missing configuration (exit 3)."""
+
+
+class RexToolError(Exception):
+    """External tool failed: javac / analyzeHeadless (exit 4)."""
+
 _ROOT: Path | None = None
 
 
@@ -611,7 +624,7 @@ def _parse_range(tok: str) -> tuple[int, int]:
     if hi < BASE:
         hi += BASE
     if lo > hi:
-        raise ValueError(f"range com lo > hi: {tok}")
+        raise RexUsageError(f"lo > hi in range: {tok}")
     return lo, hi
 
 
@@ -1774,7 +1787,7 @@ def cmd_headers(query: str) -> None:
     `rex headers <StructName>` -- dump da struct (campos + offsets)."""
     _load_headers()
     if _HEADERS is None:
-        sys.exit("ERROR: headers not found -- set REX_HEADERS (include/ dir)")
+        raise RexConfigError("headers not found -- set REX_HEADERS (include/ dir)")
     db = _HEADERS
     if query.startswith(("0x", "+0x")) or query.lstrip("0x7100").isdigit() is False and re.fullmatch(r"[0-9a-fA-F]+", query):
         try:
@@ -1855,8 +1868,8 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
     else:
         gens = _root() / "dumpers"
         if not (gens / "FullDecompDump.java").exists():
-            sys.exit("ERROR: dumpers/ not found in $REX_ROOT -- set REX_DUMPERS "
-                     "(dir with FullDecompDump.java).")
+            raise RexConfigError("dumpers/ not found in $REX_ROOT -- set REX_DUMPERS "
+                         "(dir with FullDecompDump.java)")
 
     # defaults do ambiente local (Ghidra via Homebrew)
     ghidra_cand = [
@@ -1866,7 +1879,7 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
     ]
     ghidra = next((Path(p) for p in ghidra_cand if p and Path(p).exists()), None)
     if ghidra is None:
-        sys.exit("ERROR: Ghidra not found -- set GHIDRA_HOME (e.g. /opt/homebrew/Cellar/ghidra/12.1.2/libexec)")
+        raise RexConfigError("Ghidra not found -- set GHIDRA_HOME (e.g. /opt/homebrew/Cellar/ghidra/12.1.2/libexec)")
     # Ghidra project: default = $REX_ROOT/ghidra-project; REX_GPR names the
     # .gpr file (default: auto-discover the first .gpr in the project dir)
     gpr = _cfg("REX_GPR", "")
@@ -1875,13 +1888,13 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
     if not gpr:
         found = sorted(proj.glob("*.gpr")) if proj.is_dir() else []
         if not found:
-            sys.exit(f"ERROR: no .gpr found in {proj} -- set REX_GHIDRA_PROJ/REX_GPR")
+            raise RexConfigError(f"no .gpr found in {proj} -- set REX_GHIDRA_PROJ/REX_GPR")
         gpr = found[0].name
     if not (proj / gpr).exists():
-        sys.exit(f"ERROR: {proj / gpr} not found -- set REX_GHIDRA_PROJ/REX_GPR")
+        raise RexConfigError(f"{proj / gpr} not found -- set REX_GHIDRA_PROJ/REX_GPR")
     builtin = ghidra / "Ghidra" / "Features" / "Decompiler" / "ghidra_scripts"
     if not builtin.is_dir():
-        sys.exit(f"ERROR: builtin dir does not exist: {builtin}")
+        raise RexConfigError(f"builtin dir does not exist: {builtin}")
 
     def _osgiclear(cls: str) -> None:
         # OSGi cache (ClassNotFoundException on modified scripts)
@@ -1901,7 +1914,7 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
     def _run_dump(cls: str, outdir: Path, resume_ok: bool) -> None:
         src = gens / f"{cls}.java"
         if not src.exists():
-            sys.exit(f"ERROR: dumper not found: {src}")
+            raise RexConfigError(f"dumper not found: {src}")
         tsv = outdir / "functions.tsv"
         if resume_ok and tsv.exists() and not force:
             print(f"# {cls}: RESUME -- functions.tsv exists; completing missing ones")
@@ -1915,7 +1928,7 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
             ["javac", "-d", str(build), "-proc:none", "-cp", jars, str(src)],
             capture_output=True, text=True)
         if r.returncode != 0:
-            sys.exit(f"ERROR javac {cls}:\n{r.stdout}{r.stderr}")
+            raise RexToolError(f"javac {cls} failed:\n{r.stdout}{r.stderr}")
         # 3. install into the user's SwitchLoader extension ghidra_scripts dir --
         #    the ONLY place OSGi resolves the bundle for these scripts in this
         #    setup (builtin and ~/ghidra_scripts give ClassNotFoundException;
@@ -1935,10 +1948,10 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
             if d.is_dir()
         })
         if not ext_dirs:
-            sys.exit("ERROR: no ghidra_*/Extensions/SwitchLoader/ghidra_scripts "
-                     "under the Ghidra user settings dir (~/Library/ghidra on "
-                     "macOS, ~/.ghidra elsewhere) -- install the SwitchLoader "
-                     "extension or create the dir.")
+            raise RexConfigError("no ghidra_*/Extensions/SwitchLoader/ghidra_scripts "
+                                 "under the Ghidra user settings dir (~/Library/ghidra "
+                                 "on macOS, ~/.ghidra elsewhere) -- install the "
+                                 "SwitchLoader extension or create the dir.")
         ext = ext_dirs[-1]
         shutil.copy(src, ext / src.name)
         shutil.copy(build / f"{cls}.class", ext / f"{cls}.class")
@@ -1956,11 +1969,11 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
                               env=sub_env)
         out = (proc.stdout or "") + (proc.stderr or "")
         for line in out.splitlines():
-            if "ERROR" in line or "progresso" in line or "TOTAL" in line:
+            if "ERROR" in line or "progress:" in line or "TOTAL" in line:
                 print(f"  {line.strip()[:160]}")
         if proc.returncode != 0 or "SCRIPT ERROR" in out:
-            sys.exit(f"ERRO: analyzeHeadless {cls} falhou "
-                     f"(exit {proc.returncode}; SCRIPT ERROR in log)")
+            raise RexToolError(f"analyzeHeadless {cls} failed "
+                               f"(exit {proc.returncode}; SCRIPT ERROR in log)")
         shutil.rmtree(build, ignore_errors=True)
         # Ghidra progress dump output goes to ROOT/data/*/progress.log
 
@@ -2001,13 +2014,13 @@ def main() -> None:
                     vas.append(_parse_va(x))
             if len(vas) == 2:
                 if vas[1] < vas[0]:
-                    raise ValueError("va2 < va1 no range")
+                    raise RexUsageError("va2 < va1 in range")
                 cnt = max(1, (vas[1] - vas[0]) // 4 + 1)
                 cmd_dis(vas[0], cnt)
             elif len(vas) == 1:
                 cmd_dis(vas[0], n)
             else:
-                raise IndexError("dis requer um VA (ou dois, para range)")
+                raise RexUsageError("dis requires a VA (or two for a range)")
         elif cmd == "body":
             a = "-a" in rest
             cmd_body(_parse_va(rest[0]), a)
@@ -2029,7 +2042,7 @@ def main() -> None:
                 cmd_vtable(_parse_va(rest2[0]), j, n)
         elif cmd == "vtable-callers":
             if not rest:
-                raise IndexError("vtable-callers requer um VA ou nome de vtable")
+                raise RexUsageError("vtable-callers requires a VA or vtable name")
             cmd_vtable_callers(_parse_va(rest[0]))
         elif cmd == "blr":
             if rest and rest[0] == "-l":
@@ -2037,7 +2050,7 @@ def main() -> None:
             elif rest:
                 cmd_blr(_parse_va(rest[0]))
             else:
-                raise IndexError("blr requer um site VA (ou -l para o resumo global)")
+                raise RexUsageError("blr requires a site VA (or -l for the global summary)")
         elif cmd == "offset":
             load = "-l" in rest             # -l = loads; default/-w = stores (writes)
             rest = [x for x in rest if x not in ("-w", "-l")]
@@ -2053,11 +2066,11 @@ def main() -> None:
                 else:
                     vals.append(x)
             if not vals:
-                raise IndexError("offset requer um imm")
+                raise RexUsageError("offset requires an imm")
             cmd_offset(int(vals[0], 0), load, msub, rng)
         elif cmd == "bit":
             if len(rest) < 2:
-                raise IndexError("bit requer <off> <bit>")
+                raise RexUsageError("bit requires <off> <bit>")
             rng = None
             br = [x for x in rest if x != "-r"]
             if len(br) != len(rest):
@@ -2079,7 +2092,7 @@ def main() -> None:
                 else:
                     v = _parse_va(x)
             if v is None:
-                raise IndexError("reloc requer um VA")
+                raise RexUsageError("reloc requires a VA")
             cmd_reloc(v, n, back, reverse)
         elif cmd == "rodata":
             typ = "i32"
@@ -2094,7 +2107,7 @@ def main() -> None:
                 else:
                     v = _parse_va(x)
             if v is None:
-                raise IndexError("rodata requer um VA")
+                raise RexUsageError("rodata requires a VA")
             cmd_rodata(v, typ, n)
         elif cmd == "str":
             if rest and rest[0] == "-f":
@@ -2105,7 +2118,7 @@ def main() -> None:
             cmd_adrp(_parse_va(rest[0]))
         elif cmd == "headers":
             if not rest:
-                raise ValueError("uso: rex headers <offset|StructName>")
+                raise RexUsageError("headers requires <offset|StructName>")
             cmd_headers(rest[0])
         elif cmd == "shards":
             target = "all"
@@ -2116,15 +2129,21 @@ def main() -> None:
                 elif a == "--force":
                     force = True
                 else:
-                    raise ValueError(f"uso: rex shards [all|decomp|asm] [--force]")
+                    raise RexUsageError("shards takes [all|decomp|asm] [--force]")
             cmd_shards(target, force)
         else:
             print(f"unknown command: {cmd}")
             print(__doc__)
             sys.exit(2)
-    except (ValueError, IndexError) as e:
-        print(f"usage error: {e}\n{__doc__}")
+    except (RexUsageError, ValueError, IndexError) as e:
+        print(f"usage error: {e}\n{__doc__}", file=sys.stderr)
         sys.exit(2)
+    except RexConfigError as e:
+        print(f"config error: {e}", file=sys.stderr)
+        sys.exit(3)
+    except RexToolError as e:
+        print(f"tool error: {e}", file=sys.stderr)
+        sys.exit(4)
 
 
 if __name__ == "__main__":

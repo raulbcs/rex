@@ -203,6 +203,19 @@ analyzers default + **Switch IPC** → save. After that everything is
 headless. See the README's Dependencies section for installing Ghidra +
 SwitchLoader.
 
+## Exit codes
+
+| code | class | meaning |
+|---|---|---|
+| 0 | -- | success |
+| 1 | -- | no results (search-style miss) |
+| 2 | `RexUsageError` | bad command line |
+| 3 | `RexConfigError` | bad or missing configuration (env / `~/.rexrc`) |
+| 4 | `RexToolError` | external tool failed (`javac` / `analyzeHeadless`) |
+
+So scripts can branch: retry after 3 (fix config), report after 2 (typo),
+escalate after 4 (toolchain).
+
 ## Gotchas
 
 - **OSGi**: new Java scripts only load from the user's
