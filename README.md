@@ -56,7 +56,7 @@ and Ghidra 12.x installed.
 | **SwitchLoader** | [borntohonk/Ghidra-Switch-Loader](https://github.com/borntohonk/Ghidra-Switch-Loader) @ `2c9357f` (ext v1.6.1) | Ghidra extension: understands NSO/NRO binaries |
 | **Java JDK** | 21 (`javac` included) | Ghidra itself + compiling the dumpers |
 | **uv** | any recent | runs rex (`uv run python`) |
-| hactool / nstool | [borntohonk/hactool](https://github.com/borntohonk/hactool) (validated for this pipeline) or [jakcron/nstool](https://github.com/jakcron/nstool) (untested alternative) | one-time extraction: game dump → NCA → ExeFS → decompressed NSO (needs `prod.keys`/`title.keys` from your console) |
+| hactool | [borntohonk/hactool](https://github.com/borntohonk/hactool) | one-time extraction: game dump → NCA → ExeFS → decompressed NSO (needs `prod.keys`/`title.keys` from your console) |
 
 Who invokes what:
 
@@ -67,8 +67,8 @@ Who invokes what:
   one-time GUI import. rex merely borrows the extension's `ghidra_scripts/`
   directory to install the dumpers (the only place Ghidra's OSGi will load
   them from).
-- **hactool / nstool are never called by rex** -- you run them yourself,
-  once, to produce the binary.
+- **hactool is never called by rex** -- you run it yourself, once, to
+  produce the binary.
 
 Setup (one-time):
 
@@ -96,7 +96,6 @@ git checkout 2c9357f        # commit validated with Ghidra 12.1.2
 #    macOS shortcut: brew install uv
 
 # 5. hactool (any OS, build from source): https://github.com/borntohonk/hactool
-#    nstool alternative (prebuilt binaries): https://github.com/jakcron/nstool
 ```
 
 Capstone (`brew install capstone`, or your distro's `libcapstone-dev`) is
@@ -112,13 +111,13 @@ You need three things:
   newest code (a base-game dump would only have day-one code).
 - Your console's **keys**: `prod.keys` and `title.keys`, dumped from a
   hacked Switch with Lockpick_RCM. No keys, no decryption.
-- **hactool** (or nstool -- same steps, different flags).
+- **hactool** ([borntohonk fork](https://github.com/borntohonk/hactool)).
 
 Then extract in three steps -- NSP to NCA, NCA to ExeFS, NSO to raw binary:
 
 ```bash
-# 1a. Find the PROGRAM NCA inside your NSP (nstool -l, or unzip the NSP and
-#     look for the largest .nca -- it's the one containing code).
+# 1a. Find the PROGRAM NCA inside your NSP (unzip it and look for the
+#     largest .nca -- it's the one containing code).
 # 1b. Extract its ExeFS (the <TITLEKEY> line comes from your title.keys):
 hactool -k prod.keys --titlekey <TITLEKEY> -t nca --exefsdir main-binary/
 #     -> main, main.npdm, rtld, sdk... you want `main`.

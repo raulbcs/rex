@@ -178,12 +178,12 @@ rex ann <va>             # hdr:Struct.field badges on uncovered offsets
 
 You need the game dump (update NSP carries the newest code), `prod.keys` +
 `title.keys` (dumped from a hacked Switch via Lockpick_RCM), and hactool
-(the borntohonk fork builds on macOS: `brew install capstone`, fix
-`config.mk` include/lib paths) or nstool.
+([borntohonk fork](https://github.com/borntohonk/hactool); builds on macOS
+with `brew install capstone` and fixed `config.mk` include/lib paths).
 
 ```bash
-# 1. PROGRAM NCA out of the update NSP (nstool, or hac.py from
-#    borntohonk/Switch-Ghidra-Guides) -- the big one with an ExeFS
+# 1. PROGRAM NCA out of the update NSP (unzip it; hac.py from
+#    borntohonk/Switch-Ghidra-Guides also works) -- the big one with an ExeFS
 # 2. ExeFS out of the NCA (titlekey decrypts):
 hactool -k prod.keys --titlekey <TITLEKEY> -t nca \
   --exefsdir <target>/main-binary/
