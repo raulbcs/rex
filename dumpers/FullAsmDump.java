@@ -3,7 +3,7 @@
 //   shard-NNN.txt (500 funcs/shard) + functions.tsv (entry, name, insns, shard).
 // SHARD=500 aligned with FullDecompDump -- identical numbering across corpora
 // is a shard_resolve.py requirement (asm↔decomp of the same function set).
-// Run via rex shards (~/projects/rex) or Method B: compile, copy .java+.class
+// Run via rex shards (~/rex) or Method B: compile, copy .java+.class
 // to the Decompiler feature scripts dir, clear OSGi cache, -noanalysis -postScript.
 // @category MK8DX.Batch
 import ghidra.app.script.GhidraScript;

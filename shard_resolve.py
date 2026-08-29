@@ -39,7 +39,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# rex lives in ~/projects/rex; corpus data lives in the TARGET -- configured
+# rex lives in ~/rex; corpus data lives in the TARGET -- configured
 # via rexconfig (env > ~/.rexrc), no project paths in code.
 import rexconfig
 

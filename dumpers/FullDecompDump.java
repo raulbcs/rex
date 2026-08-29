@@ -3,7 +3,7 @@
 //   shard-NNN.txt (500 funcs/shard) + functions.tsv (entry\tname\tstatus\tshard)
 //   + progress.log (line every 100 funcs with rate/ETA -- tail -f friendly).
 // Resume: existing functions.tsv is loaded; 'ok' functions are skipped.
-// Run via rex shards (~/projects/rex) or Method B, NEUTRAL cwd.
+// Run via rex shards (~/rex) or Method B, NEUTRAL cwd.
 // @category MK8DX.Batch
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;

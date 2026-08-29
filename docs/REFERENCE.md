@@ -47,7 +47,7 @@ error, no silent fallback.
   notes/MEMORY-MAP.md              optional: offset owners (feeds ann)
 ```
 
-Bootstrap: `mkdir -p <target> && cp -r ~/projects/rex/dumpers <target>/` --
+Bootstrap: `mkdir -p <target> && cp -r ~/rex/dumpers <target>/` --
 the rex copy is canonical; `REX_DUMPERS` may point straight at it.
 
 ## Corpus generation (`rex shards`)

@@ -454,7 +454,7 @@ def _ann_line(line: str) -> str:
 
 def cmd_ann(va: int, n_context: int = 0) -> None:
     """Decomp body with inline semantic annotations."""
-    sys.path.insert(0, str(Path(__file__).resolve().parent))  # rex vive em ~/projects/rex
+    sys.path.insert(0, str(Path(__file__).resolve().parent))  # rex vive em ~/rex
     from shard_resolve import ShardIndex
     idx = ShardIndex()
     body = idx.load_decomp(va)

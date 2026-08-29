@@ -24,11 +24,11 @@ $ rex headers 0x1e4
 echo 'REX_ROOT=/path/to/target' >> ~/.rexrc
 
 # 2. generate the corpus from your Ghidra project (~7 min the first time)
-uv run python ~/projects/rex/rex.py shards
+uv run python ~/rex/rex.py shards
 
 # 3. analyze
-uv run python ~/projects/rex/rex.py fn 0x7100176474     # what function is this?
-uv run python ~/projects/rex/rex.py ann 0x7100174778    # annotated decomp
+uv run python ~/rex/rex.py fn 0x7100176474     # what function is this?
+uv run python ~/rex/rex.py ann 0x7100174778    # annotated decomp
 ```
 
 Prerequisites for step 2: a Ghidra project with the game binary already
@@ -91,7 +91,7 @@ own, so this step is manual -- but only once.
 <target>/                          ← this is REX_ROOT
   main-binary/uncompressed_main
   ghidra-project/                  ← from step 2
-  dumpers/                         ← cp -r ~/projects/rex/dumpers .
+  dumpers/                         ← cp -r ~/rex/dumpers .
   data/                            ← generated (shards land here)
 ```
 
