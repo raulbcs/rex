@@ -132,9 +132,3 @@ Every command that takes a VA also takes a short name (`rex ann DriftCalc`).
 Deep reference -- every command, registry file formats, badge legend, and the
 gotchas (OSGi cache, lying headless exit codes) -- lives in
 [docs/REFERENCE.md](docs/REFERENCE.md).
-
-## mk8dx-re
-
-The main repo ships a shim (`03-analysis/scripts/rex.py`) that sets
-`REX_ROOT` to itself and loads rex from here -- its regen pipeline and
-docs keep working with zero configuration.
