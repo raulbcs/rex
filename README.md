@@ -1,7 +1,8 @@
-# rex
+# rex 🦖
 
-**rex** -- short for **RE eXplorer**, a reverse-engineering explorer. Named
-to be typed a hundred times a day.
+**rex** -- short for **RE EXamine**. Every command is an act of examining:
+`rex fn`, `rex ann`, `rex xref` -- reverse engineering, one question at a
+time. (The dinosaur is the mascot. Rawr.)
 
 > **Educational purposes only.** Personal study of reverse engineering on
 > games I own. Not affiliated with or endorsed by any rights holder. No
