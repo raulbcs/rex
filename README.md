@@ -48,7 +48,7 @@ and Ghidra 12.x installed.
 | **SwitchLoader** | [borntohonk/Ghidra-Switch-Loader](https://github.com/borntohonk/Ghidra-Switch-Loader) @ `2c9357f` (ext v1.6.1) | Ghidra extension: understands NSO/NRO binaries |
 | **Java JDK** | 21 (`javac` included) | Ghidra itself + compiling the dumpers |
 | **uv** | any recent | runs rex (`uv run python`) |
-| hactool / nstool | borntohonk fork | only for extracting the binary (once) |
+| hactool / nstool | hactool 1.x ([borntohonk fork](https://github.com/borntohonk/hactool), builds on macOS) or nstool 1.9.2 | one-time extraction: game dump → NCA → ExeFS → decompressed NSO (needs `prod.keys`/`title.keys` from your console) |
 
 Setup (one-time):
 
