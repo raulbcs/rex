@@ -40,9 +40,46 @@ fallback). Missing `REX_ROOT` → clear error teaching how to configure.
 
 - **uv** (Python) — everything runs via `uv run python`
 - **Ghidra 12.1.2** (Homebrew: `/opt/homebrew/Cellar/ghidra/12.1.2/libexec`; or `GHIDRA_HOME`)
+- **Ghidra SwitchLoader extension** (borntohonk fork — native Ghidra 12 support)
 - **javac 21+** (to compile the dumpers)
-- **Ghidra project** with the binary imported and analyzed
-  (decompressed NSO; import once via GUI/headless)
+- For extracting the binary: **hactool** (borntohonk fork, builds on macOS with
+  `brew install capstone` + `config.mk` include/lib paths) or **nstool**
+
+### 0.1 Getting `uncompressed_main` (the raw binary)
+
+You need: the game dump (update NSP is enough — it carries the newest `main`),
+`prod.keys` and `title.keys` (from your hacked Switch via Lockpick_RCM), and
+hactool. Steps (as done for MK8DX v3.0.5):
+
+```bash
+# 1. Pull the PROGRAM NCA out of the update NSP (hac.py from
+#    borntohonk/Switch-Ghidra-Guides, or nstool). Identify it by type:
+#    Program NCAs are the large ones with an ExeFS.
+hactool -k prod.keys -t xci/nsp ...   # or: uvx hac.py-style extraction
+
+# 2. Extract the ExeFS from the PROGRAM NCA (titlekey decrypts it):
+hactool -k prod.keys --titlekey <TITLEKEY> -t nca \
+  --exefsdir <REX_ROOT>/main-binary/
+#    → main (compressed NSO), main.npdm, rtld, sdk, subsdk0
+
+# 3. Decompress the main NSO (this IS the file rex reads):
+hactool -t nso main-binary/main \
+  --uncompressed=main-binary/uncompressed_main
+#    → ~19MB for MK8DX; keep the Build ID noted (FE941ED5BA14BE5D for 3.0.5)
+```
+
+### 0.2 Importing into Ghidra (one-time, GUI)
+
+`analyzeHeadless` doesn't load the SwitchLoader extension on its own — import
+once via GUI so the project exists and the loader processes the binary:
+
+1. `ghidraRun` → File → Import File → `uncompressed_main`
+2. Format: **Nintendo Switch Binary** (from SwitchLoader); keep default
+   analyzers + enable **Switch IPC**
+3. Let the analysis finish; save the project under `$REX_ROOT/ghidra-project/`
+
+After that, `rex shards` reuses the existing project headlessly with
+`-noanalysis` (no GUI needed again).
 
 ### 1. Target layout (`$REX_ROOT`)
 
