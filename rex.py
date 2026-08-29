@@ -1013,7 +1013,7 @@ def cmd_ctor(va: int, json_out: bool = False, list_all: bool = False) -> None:
             print(f"  {nm:<28} 0x{int(ent['va'],16):x}  {ent['class'][:64]}")
         return
     if va == 0:
-        print("uso: rex ctor <va|nome> [-j]")
+        print("usage: rex ctor <va|name> [-j]")
         return
     # 1) asm do ctor
     sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -1864,7 +1864,7 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
     if dumpers_env:
         gens = Path(dumpers_env).expanduser()
         if not (gens / "FullDecompDump.java").exists():
-            sys.exit(f"ERRO: REX_DUMPERS={gens} has no FullDecompDump.java")
+            raise RexConfigError(f"REX_DUMPERS={gens} has no FullDecompDump.java")
     else:
         gens = _root() / "dumpers"
         if not (gens / "FullDecompDump.java").exists():
