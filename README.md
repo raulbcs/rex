@@ -1,226 +1,99 @@
-# rex — RE Swiss-army knife (Switch/NSO)
+# rex
 
-Standalone static-analysis toolchain: raw binary + Ghidra corpus + C++
-headers. Lives outside projects; **no project paths in code** — everything
-configurable via **env > `~/.rexrc`** (see `rexconfig.py`).
+Static-analysis toolkit for Switch games (NSO binaries): raw binary + Ghidra
+corpus + C++ headers, queried through one CLI.
 
-## Files in this repo
-
-| file | role |
-|---|---|
-| `rex.py` | CLI: fn/callers/body/ann/offset/vtable/reloc/xref/... + `shards` (corpus generation) + `headers` |
-| `shard_resolve.py` | resolves function→shard and loads bodies (decomp/asm) |
-| `rexconfig.py` | config: env > ~/.rexrc (REX_ROOT, REX_HEADERS, ...) |
-| `headers_parser.py` | parses `.hpp` (structs + offsets from comments) |
-| `dumpers/FullDecompDump.java` | decomp dump of ALL functions |
-| `dumpers/FullAsmDump.java` | full asm dump |
-
-## Configuration (required: REX_ROOT)
-
-`~/.rexrc` (or envs — env wins):
+Ask it things like *which function contains this address*, *who calls it*,
+*who writes to this struct offset*, *what vtable is this* — without opening
+Ghidra again. It also **generates the corpus** (decomp + asm dumps of every
+function) from an existing Ghidra project.
 
 ```
-REX_ROOT=/path/to/target/03-analysis
-REX_HEADERS=/path/to/headers/include      # optional (rex headers / ann badge)
+$ rex ann DriftCalc
+# DriftCalc = 0x7100172ab0
+*(undefined4 *)(param_1 + 0x1e4) = 0x1c2;   ⟦+0x1e4≈Director: drift counter⟧
+...
 ```
 
-Keys (sensible defaults in `rexconfig.py`): `REX_ROOT` (required),
-`REX_DUMPERS` (default `$REX_ROOT/dumpers`), `REX_GHIDRA_PROJ` (default
-`$REX_ROOT/ghidra-project`), `REX_GPR` (default `MK8DX.gpr`),
-`REX_PROGRAM` (default `uncompressed_main`),
-`REX_BIN` (default `main-binary/uncompressed_main`),
-`REX_BASE` (default `0x7100000000`), `GHIDRA_HOME`.
-
-Explicit config is **law**: if set and invalid → immediate error (no silent
-fallback). Missing `REX_ROOT` → clear error teaching how to configure.
-
-## Step by step (new project)
-
-### 0. Required tools
-
-- **uv** (Python) — everything runs via `uv run python`
-- **Ghidra 12.1.2** (Homebrew: `/opt/homebrew/Cellar/ghidra/12.1.2/libexec`; or `GHIDRA_HOME`)
-- **Ghidra SwitchLoader extension** (borntohonk fork — native Ghidra 12 support)
-- **javac 21+** (to compile the dumpers)
-- For extracting the binary: **hactool** (borntohonk fork, builds on macOS with
-  `brew install capstone` + `config.mk` include/lib paths) or **nstool**
-
-### 0.1 Getting `uncompressed_main` (the raw binary)
-
-You need: the game dump (update NSP is enough — it carries the newest `main`),
-`prod.keys` and `title.keys` (from your hacked Switch via Lockpick_RCM), and
-hactool. Steps (as done for MK8DX v3.0.5):
+## Quickstart
 
 ```bash
-# 1. Pull the PROGRAM NCA out of the update NSP (hac.py from
-#    borntohonk/Switch-Ghidra-Guides, or nstool). Identify it by type:
-#    Program NCAs are the large ones with an ExeFS.
-hactool -k prod.keys -t xci/nsp ...   # or: uvx hac.py-style extraction
+# 1. point rex at your target (once)
+echo 'REX_ROOT=/path/to/target' >> ~/.rexrc
 
-# 2. Extract the ExeFS from the PROGRAM NCA (titlekey decrypts it):
-hactool -k prod.keys --titlekey <TITLEKEY> -t nca \
-  --exefsdir <REX_ROOT>/main-binary/
-#    → main (compressed NSO), main.npdm, rtld, sdk, subsdk0
+# 2. generate the corpus from your Ghidra project (~7 min the first time)
+uv run python ~/projects/rex/rex.py shards
 
-# 3. Decompress the main NSO (this IS the file rex reads):
-hactool -t nso main-binary/main \
-  --uncompressed=main-binary/uncompressed_main
-#    → ~19MB for MK8DX; keep the Build ID noted (FE941ED5BA14BE5D for 3.0.5)
+# 3. analyze
+uv run python ~/projects/rex/rex.py fn 0x7100176474     # what function is this?
+uv run python ~/projects/rex/rex.py ann 0x7100174778    # annotated decomp
 ```
 
-### 0.2 Importing into Ghidra (one-time, GUI)
+Prerequisites for step 2: a Ghidra project with the game binary already
+imported and analyzed (one-time, via GUI — see below), plus `uv`, `javac`,
+and Ghidra 12.x installed.
 
-`analyzeHeadless` doesn't load the SwitchLoader extension on its own — import
-once via GUI so the project exists and the loader processes the binary:
+## New project, from zero
 
-1. `ghidraRun` → File → Import File → `uncompressed_main`
-2. Format: **Nintendo Switch Binary** (from SwitchLoader); keep default
-   analyzers + enable **Switch IPC**
-3. Let the analysis finish; save the project under `$REX_ROOT/ghidra-project/`
-
-After that, `rex shards` reuses the existing project headlessly with
-`-noanalysis` (no GUI needed again).
-
-### 1. Target layout (`$REX_ROOT`)
-
-```
-<target>/                      ← REX_ROOT (any dir works)
-  main-binary/uncompressed_main    raw binary (REX_BIN)
-  ghidra-project/MK8DX.gpr         Ghidra project (REX_GHIDRA_PROJ/REX_GPR)
-  dumpers/*.java                   FullDecompDump/FullAsmDump (REX_DUMPERS)
-  data/decomp-full/                ← generated by rex shards
-  data/asm-full/                   ← generated by rex shards
-  data/function-names.json         optional: short names (ann/callers)
-  data/globals.json                optional: DAT_ → name
-  data/enums.json                  optional: enum values
-  data/vtables.json                optional: curated vtable registry
-  data/ctors.json                  optional: named ctors
-  data/function-notes.json         optional: curated notes (ann)
-  notes/MEMORY-MAP.md              optional: offsets with owners (ann)
-```
-
-Bootstrap a new target: `mkdir -p <target> && cp -r ~/projects/rex/dumpers <target>/`
-(the rex copy is the canonical source; `$REX_ROOT/dumpers` is just where rex
-looks first — `REX_DUMPERS` can point straight at `~/projects/rex/dumpers`).
-
-### 2. Generate the corpus (the shards)
+**1. Get the binary.** From your game dump: the update NSP is enough (it has
+the newest code). With `prod.keys`/`title.keys` and hactool:
 
 ```bash
-uv run python ~/projects/rex/rex.py shards          # decomp (~6min) + asm (~100s)
-uv run python ~/projects/rex/rex.py shards asm      # just one of them
-uv run python ~/projects/rex/rex.py shards --force  # full regen (ignores resume)
+hactool -k prod.keys --titlekey <TITLEKEY> -t nca --exefsdir main-binary/
+hactool -t nso main-binary/main --uncompressed=main-binary/uncompressed_main
 ```
 
-What it does: clears the OSGi cache → compiles the dumpers with Ghidra's
-classpath → installs the `.java`+`.class` pair into
-`~/Library/ghidra/ghidra_*/Extensions/SwitchLoader/ghidra_scripts/`
-(the **only place OSGi resolves the bundle** — builtin and `~/ghidra_scripts`
-give `ClassNotFoundException`) → runs `analyzeHeadless -noanalysis
--postScript` with a neutral cwd → **fails on SCRIPT ERROR** (headless exit
-code lies). The subprocess receives the resolved `REX_ROOT` in its env
-(the Java side doesn't read `~/.rexrc`).
+**2. Import into Ghidra (once, GUI).** `ghidraRun` → Import File →
+`uncompressed_main` → format **Nintendo Switch Binary** (needs the
+SwitchLoader extension) → analyze → save under `<target>/ghidra-project/`.
+Headless can't load the extension on its own, so this step is manual — but
+only once.
 
-Output: `data/{decomp,asm}-full/shard-NNN.txt` (500 funcs/shard) +
-`functions.tsv` (identical shard numbering across both corpora — a
-`shard_resolve` requirement).
+**3. Lay out the target.**
 
-### 3. Headers integration (optional)
+```
+<target>/                          ← this is REX_ROOT
+  main-binary/uncompressed_main
+  ghidra-project/                  ← from step 2
+  dumpers/                         ← cp -r ~/projects/rex/dumpers .
+  data/                            ← generated (shards land here)
+```
+
+**4. Configure & generate.** Put `REX_ROOT` in `~/.rexrc` (or export it),
+then `rex shards`. Done — everything else is reading.
+
+## What to query
 
 ```bash
-# REX_HEADERS in ~/.rexrc or env
-rex headers 0x1e4        # all structs with a field at this offset
-rex headers KartVehicle  # struct dump
-rex ann <va>             # now shows hdr:Struct.field badges
+rex fn 0x7100176474          # which function contains this VA
+rex body <va> [-a]           # decomp (or asm) body
+rex ann <va>                 # body + semantic annotations  ← use this first
+rex callers <va|name>        # all BL callers
+rex offset 0x1e4 -w          # who writes to this struct offset
+rex vtable <va|name>         # dump a vtable (via relocations)
+rex xref <va|name>           # every reference in the corpus
+rex headers 0x1e4            # which struct has a field here (C++ headers)
 ```
 
-Parser: `class/struct X { type field; //0xNN ... }` — explicit offset in
-the comment. Enums/methods/statics ignored.
+Every command that takes a VA also takes a short name (`rex ann DriftCalc`).
 
-### 4. Analysis (reading)
+## Making it yours
 
-```bash
-rex fn 0x7100176474              # which function contains the VA
-rex body 0x7100174778 [-a]       # decomp body (or asm)
-rex ann 0x7100174778             # annotated decomp (MEMORY-MAP + registries + headers)
-rex callers DriftCalc            # BL callers (with bounds-check)
-rex offset 0x1e4 -w              # who writes to this struct offset
-rex vtable 0x71011b4ec0          # vtable dump via relocations
-rex reloc -a 0x710013ce18        # which vtables have this function as method
-rex xref RaceInfo                # who references it (whole corpus)
-```
+- **`~/.rexrc`** — all config lives there (or env vars, which win). Keys and
+  defaults: `rexconfig.py`. The one required key is `REX_ROOT`.
+- **Annotations** — the more you feed it, the smarter `ann` gets: a
+  `notes/MEMORY-MAP.md` with offset owners, `data/*.json` registries (short
+  names, globals, enums, vtables), and `REX_HEADERS` pointing at C++ headers
+  with offset comments (MK8DX-Headers style).
+- **Config is law** — if you set something and it's invalid, rex errors out
+  immediately instead of silently falling back.
 
-Optional registries (`data/*.json`) enrich `ann`/`callers`; without them rex
-works the same (just without names). Formats:
+Deep reference — every command, registry file formats, badge legend, and the
+gotchas (OSGi cache, lying headless exit codes) — lives in
+[docs/REFERENCE.md](docs/REFERENCE.md).
 
-```jsonc
-// function-names.json — {"va_hex": "ShortName"}; "_comment" key ignored
-{"71000e3c78": "BoostChannelSet", "7100172ab0": "DriftCalc"}
+## mk8dx-re
 
-// globals.json — {"Name": {"va": "7101300398", ...}}   (va WITHOUT 0x prefix)
-{"KartHolder": {"va": "7101300398", "tag": "holder", "value": "0x71011b2fe0"}}
-
-// enums.json — per enum: field doc + "values" and/or "bits" maps
-{"control_byte": {"field": "KartUnit+0x78 (low byte)",
-                  "values": {"1": "idle", "5": "drift"},
-                  "bits": {"0x200": "mini-turbo L1"}}}
-
-// vtables.json — {"vt_name": {"va": "71011b4ec0", "slots": 80, ...}}
-//   va WITHOUT 0x prefix; slots=0 → auto-detect
-
-// function-notes.json — {"va_hex": "one-line curated note"}   // shown as ⭐ in ann
-```
-
-`notes/MEMORY-MAP.md` sections: `## <Object name>` followed by table rows
-`| +0xNN | type | meaning | STATUS | source |` — any `## ` header names the
-owner object for the offsets under it.
-
-### `ann` badge legend
-
-| badge | meaning |
-|---|---|
-| `+0x1e4=Director: ...` | owner confirmed by the line's own context |
-| `+0x1e4≈Owner: ...` | heuristic single owner (confirm the base object) |
-| `+0x1e4=? A: ... \| B: ...` | ambiguous — multiple owners have this offset |
-| `?` suffix | source status UNCONFIRMED/PARTIAL |
-| `hdr:Struct.field` | from the C++ headers (REX_HEADERS), when MEMORY-MAP doesn't cover |
-
-### Command reference
-
-Full details: `rex --help` (the module docstring). Highlights beyond §4:
-
-```bash
-rex dis <va> [-n N]        # in-place disassembly (uv run --with capstone)
-rex dis <va1> <va2>        # range disassembly
-rex bit <off> <bit>        # who SET/CLEARs a flag bit (with the def)
-rex rodata <va> [-t f32]   # decode a table in .rodata/.data
-rex str <va> / str -f <sub># C-string at VA / reverse search
-rex ptr <va>               # resolve a .data/.rodata pointer
-rex vtable-callers <vt>    # BL + BLR call sites per slot ('0 BL callers' cure)
-rex blr <site_va>          # resolve a virtual dispatch (slot + vtables)
-rex ctor <va>              # static ctor chain (holders → vtables)
-rex adrp <va>              # ADRP+ADD/LDR materializations
-rex fn -r A..B             # list functions in a VA range
-rex offset <imm> -l -m 'str s'   # loads only, FP singles only
-```
-
-Every VA argument also accepts short names from `function-names.json`
-(`rex ann DriftCalc`, `rex callers MoveStep`).
-
-## mk8dx-re (main repo)
-
-That repo ships a **shim** at `03-analysis/scripts/rex.py` that sets
-`REX_ROOT` = itself and loads the module from here — `import rex` (regen
-pipeline) and path-based CLI keep working with zero configuration.
-
-## Gotchas (learned the hard way)
-
-- **OSGi/Extensions**: new Java scripts only run when installed in the
-  user's `Extensions/SwitchLoader/ghidra_scripts/`; a stale copy with a
-  hardcoded path there silently redirects dumps to the wrong place — rex
-  always overwrites with a fresh one.
-- **analyzeHeadless exits 0 even on SCRIPT ERROR** — rex captures the log
-  and fails for real.
-- **headless cwd must be neutral** (`/tmp`) — OSGi picks up the cwd's
-  `.java` instead of the compiled pair → `ClassNotFoundException`.
-- `rex callers` = 0 doesn't mean orphan: it may be a `b` tail-call (redo
-  with a raw BL scan on the asm corpus).
+The main repo ships a shim (`03-analysis/scripts/rex.py`) that sets
+`REX_ROOT` to itself and loads rex from here — its regen pipeline and
+docs keep working with zero configuration.
