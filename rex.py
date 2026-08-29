@@ -1,80 +1,41 @@
 #!/usr/bin/env python3
-"""rex -- RE Swiss-army knife (raw binary + corpus).
+"""rex -- RE EXamine: query a Switch binary + its Ghidra corpus (stdlib only).
 
-Solves the recurring frictions of static analysis:
-  rex fn <va>              → which function contains the address
-  rex callers <va>         → all BLs to the target (with caller function name)
-  rex body <va> [-a]       → body from the corpus (decomp; -a = asm)
-  rex offset <imm> [-w|-l] [-m SUB] [-r A..B]
-                           → instructions accessing [reg, #imm] (default: STORES;
-                             -w = writes (alias of default); -l = loads)
-                             covers str/ldr b/h/w/x/s/d/q, stp/ldp, stur/ldur and
-                             pre/post-index writeback (str x,[x,#imm]! / [x],#imm)
-                             (struct offset with sign; FP/SIMD with correct scale)
-                             -m SUB: filter by rendered left-hand side
-                               (e.g. -m 'stp s' → FP pairs only; -m 'str s' → singles)
-                             -r A..B: only VAs within [A, B] (e.g. -r 0x7100160000..0x71001a0000)
-  rex rodata <va> [-t T] [-n N]   → decodes a table in .rodata/.data
-                            T: i32 (default) | u32 | f32 | f64 | i64 | u64
-                               | i16 | u16 | i8 | u8 | hex  (u64 resolves → FUN_xxx)
-  rex str <va>             → C-string at the VA
-  rex str -f <substr>      → REVERSE search: VAs containing the substring
-  rex vtable <va|name> [-n N] [-j|-l] → dump the vtable via relocations
-                               (slots→functions with short names; -n limits for
-                               compact blocks without RTTI; -j JSON; -l lists
-                               those registered in data/vtables.json)
-  rex vtable-callers <va|name> → call-site inventory per vtable slot: exact
-                               direct BL callers + BLR sites whose slot-offset
-                               matches (virtual dispatch candidates). Covers the
-                               '0 BL callers' gap.
-  rex blr <site_va>          → resolves a virtual dispatch: slot-offset + which
-                               curated vtables have a slot at that offset
-  rex blr -l                 → global summary: total BLRs in .text, how many with
-                               resolved slot-offset, top offsets by frequency
-  rex ctor <va|name> [-l]    → static ctor chain: holders → vtables installed
-                               per field; new(size) and named calls
-  rex adrp <va>            → ADRP+ADD/LDR materializing the VA in .text
-  rex dis <va> [-n N]      → in-place disassembly (capstone via 'uv run --with
-                             capstone'; structural fallback ret/nop/bl)
-  rex dis <va1> <va2>      → range: disassembles from va1 to va2 (inclusive)
-  rex bit <off> <bit> [-r A..B] → stores of #off that SET/CLEAR/TOGGLE the bit, with
-                               the immediate def (orr/and/eor/mov) that produced it
-                               (-r filters by VA range)
-  rex reloc <va> [-n N] [-b B] → NSO relocation table entries
-                               (R_AARCH64_RELATIVE) from the VA -- resolves
-                               relocatable vtables: addend → function name
-  rex reloc -a <va>        → REVERSE: slots receiving this VA as addend
-                           (= which vtables have the function as a method)
-  rex ann <va>             → ANNOTATED decomp body: struct offsets with semantic
-                               names from MEMORY-MAP.md and curated call notes
-                               (function-notes.json). Default: known offsets
-                               highlighted [+0x184 = coins clamp 0..10];
-                               unknown offsets stay clean -- focus on what's known.
-  rex ptr <va>            → resolves a pointer in .data/.rodata: reads the qword
-                               at the VA and identifies the target (function/
-                               vtable/global/string)
-  rex xref <va|name>      → who references a VA/global in the corpus (decomp-full
-                            + asm-full; DAT_/PTR_DAT_ + raw hex). lists file:line+fn
-  rex fn -r A..B          → lists catalogued functions with start in [A, B]
-  rex headers <offset|Struct> → C++ header field at this offset (across all
-                            structs) or struct dump; hdr: badge in `ann`
-                            (config REX_HEADERS = include/ dir)
-  rex shards [all|decomp|asm] [--force]
-                          → GENERATES the corpus (shards) via Ghidra headless:
-                            clears OSGi cache, compiles $REX_DUMPERS/ (default
-                            $REX_ROOT/dumpers), installs into
-                            Extensions/SwitchLoader and runs FullDecompDump
-                            (~6min, RESUME) + FullAsmDump (~100s) with SCRIPT
-                            ERROR detection. Output in $REX_ROOT/data/
+Every command examines one thing. Examples:
 
-VA args accept '0x7100...', '7100...' or 'FUN_7100...'/'thunk_FUN_...'.
+    rex fn 0x7100176474        # which function contains this address
+    rex ann DriftCalc          # annotated decomp (names from your registries)
+    rex callers PlayerMove     # who calls it
+    rex offset 0x1e4 -w        # who writes to this struct offset
+    rex vtable vt_player       # dump a vtable via relocations
 
-Edge cases: 'fn' WARNS when the VA is in a GAP (dumper-orphan function,
-bounds-check via asm-full insns); 'body' tells mid-function (dumps the
-container) from gap (disassembles in place with 'dis').
+Commands (full details: docs/REFERENCE.md):
 
-Configuration via env > ~/.rexrc (rexconfig.py) -- no project paths in code.
-Python 3 stdlib only.
+    fn [-r A..B]      function containing a VA / list functions in a range
+    body [-a]         decomp (or asm) body from the corpus
+    ann               body + semantic annotations (MEMORY-MAP, registries, headers)
+    callers           all BL sites targeting a function (bounds-checked)
+    offset [-w|-l]    instructions touching [reg, #imm] (stores/loads)
+    bit               which writers SET/CLEAR/TOGGLE a flag bit
+    vtable [-j|-l]    vtable dump via relocations
+    vtable-callers    per-slot call sites: direct BL + virtual dispatch (BLR)
+    blr [-l]          resolve a virtual dispatch site / global BLR stats
+    ctor              static ctor chain: holders -> installed vtables
+    reloc [-a]        NSO relocation entries / reverse (which vtable slots)
+    ptr               resolve a .data/.rodata pointer
+    adrp              ADRP+ADD/LDR materializations of a VA
+    xref              every reference to a VA/global in the corpus
+    rodata [-t T]     decode a table in .rodata/.data
+    str [-f SUB]      C-string at a VA / reverse substring search
+    dis [va1 va2]     in-place / range disassembly (capstone if available)
+    headers           C++ header field at an offset, or struct dump
+    shards [--force]  GENERATE the corpus via Ghidra headless (see REFERENCE)
+
+VA arguments accept 0x/7100... hex, FUN_7100.../thunk_FUN_..., and short
+names from data/function-names.json (e.g. rex ann DriftCalc).
+
+All paths come from config (env > ~/.rexrc, see rexconfig.py) -- no project
+paths are hardcoded. Python 3 stdlib only.
 """
 from __future__ import annotations
 
