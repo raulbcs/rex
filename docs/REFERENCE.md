@@ -195,10 +195,12 @@ hactool -t nso <target>/main-binary/main \
 Note the Build ID (e.g. `FE941ED5BA14BE5D` for MK8DX 3.0.5) — it identifies
 the version across your docs.
 
-Then import into Ghidra once via GUI (`ghidraRun` → Import File → format
-**Nintendo Switch Binary** via SwitchLoader, analyzers default + **Switch
-IPC**), save under `<target>/ghidra-project/`. After that everything is
-headless.
+Then import into Ghidra once via GUI: `ghidraRun` → **File → New Project**
+(non-shared) at `<target>/ghidra-project/` → **File → Import File** →
+`uncompressed_main` → format **Nintendo Switch Binary** (SwitchLoader) →
+analyzers default + **Switch IPC** → save. After that everything is
+headless. See the README's Dependencies section for installing Ghidra +
+SwitchLoader.
 
 ## Gotchas
 

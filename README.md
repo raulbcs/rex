@@ -35,6 +35,38 @@ Prerequisites for step 2: a Ghidra project with the game binary already
 imported and analyzed (one-time, via GUI — see below), plus `uv`, `javac`,
 and Ghidra 12.x installed.
 
+## Dependencies
+
+| tool | version used | what for |
+|---|---|---|
+| **Ghidra** | 12.1.2 (Homebrew) | imports/analyzes the binary; headless runs the dumpers |
+| **SwitchLoader** | 1.6.1 (borntohonk fork) | Ghidra extension: understands NSO/NRO binaries |
+| **Java JDK** | 21 (`javac` included) | Ghidra itself + compiling the dumpers |
+| **uv** | any recent | runs rex (`uv run python`) |
+| hactool / nstool | borntohonk fork | only for extracting the binary (once) |
+
+Setup (one-time):
+
+```bash
+# 1. Ghidra + JDK 21
+brew install ghidra openjdk@21
+
+# 2. SwitchLoader extension — clone & build against your Ghidra:
+git clone https://github.com/borntohonk/Ghidra-Switch-Loader
+cd Ghidra-Switch-Loader
+gradle -PGHIDRA_INSTALL_DIR=/opt/homebrew/Cellar/ghidra/12.1.2/libexec
+# → produces a SwitchLoader-<ver>-Ghidra_12.1.2.zip in dist/
+# 3. Install it: Ghidra GUI → File → Install Extensions → + → the zip →
+#    restart Ghidra when prompted. (Or unzip straight into
+#    <GHIDRA_HOME>/Extensions/Ghidra/ — that also works.)
+
+# 4. uv (if you don't have it)
+brew install uv
+```
+
+Capstone (`brew install capstone`) is only needed if you compile hactool
+from source on macOS.
+
 ## New project, from zero
 
 **1. Get the binary.** From your game dump: the update NSP is enough (it has
@@ -45,11 +77,13 @@ hactool -k prod.keys --titlekey <TITLEKEY> -t nca --exefsdir main-binary/
 hactool -t nso main-binary/main --uncompressed=main-binary/uncompressed_main
 ```
 
-**2. Import into Ghidra (once, GUI).** `ghidraRun` → Import File →
-`uncompressed_main` → format **Nintendo Switch Binary** (needs the
-SwitchLoader extension) → analyze → save under `<target>/ghidra-project/`.
-Headless can't load the extension on its own, so this step is manual — but
-only once.
+**2. Import into Ghidra (once, GUI).** `ghidraRun` → **File → New Project**
+(non-shared) at `<target>/ghidra-project/` → then **File → Import File** →
+`uncompressed_main` → format **Nintendo Switch Binary** (from SwitchLoader;
+if it's not in the format list, the extension isn't installed — see
+Dependencies) → keep default analyzers + enable **Switch IPC** → let it run
+(~30 min for a 19MB NSO) → save. Headless can't load the extension on its
+own, so this step is manual — but only once.
 
 **3. Lay out the target.**
 
