@@ -85,7 +85,7 @@ registry short names (`rex ann PlayerMove`).
 | `body <va> [-a]` | decomp (or asm) body; mid-function → whole container; GAP → in-place dis |
 | `ann <va>` | decomp + annotations (MEMORY-MAP, registries, headers, notes) |
 | `callers <va>` | all BL sites targeting it, bounds-checked (GAP hits discarded) |
-| `offset <imm> [-w\|-l] [-m SUB] [-r A..B]` | instructions touching `[reg, #imm]` (default stores; `-l` loads); all widths, stp/ldp, writeback; `-m` filters mnemonic, `-r` VA range |
+| `offset <imm> [-w\|-l\|-c] [-m SUB] [-r A..B]` | instructions touching `[reg, #imm]` (default stores; `-l` loads); all widths, stp/ldp, writeback; `-m` filters mnemonic, `-r` VA range; **`-c` = materializações do imm em registrador** (`mov w9,#imm`, `add x8,x19,#imm`, `orr w8,wzr,#imm`) + store consumidor `[xn,xm]` na janela seguinte — pega writers com offset COMPUTADO que o scan imediato não vê |
 | `bit <off> <bit> [-r A..B]` | writers that SET/CLEAR/TOGGLE the bit, with the immediate def |
 | `vtable <va\|name> [-n N] [-j\|-l]` | vtable dump via relocations (slots→functions) |
 | `vtable-callers <va\|name>` | per slot: exact BL callers + BLR dispatch candidates |

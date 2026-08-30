@@ -7,6 +7,7 @@ Every command examines one thing. Examples:
     rex ann DriftCalc          # annotated decomp (names from your registries)
     rex callers PlayerMove     # who calls it
     rex offset 0x1e4 -w        # who writes to this struct offset
+rex offset 0x1650 -c       # + materializations (computed-offset writers)
     rex vtable vt_player       # dump a vtable via relocations
 
 Commands (full details: docs/REFERENCE.md):
@@ -15,7 +16,7 @@ Commands (full details: docs/REFERENCE.md):
     body [-a]         decomp (or asm) body from the corpus
     ann               body + semantic annotations (MEMORY-MAP, registries, headers)
     callers           all BL sites targeting a function (bounds-checked)
-    offset [-w|-l]    instructions touching [reg, #imm] (stores/loads)
+    offset [-w|-l|-c]    [reg,#imm] stores/loads; -c = imm materializations (computed offsets)
     bit               which writers SET/CLEAR/TOGGLE a flag bit
     vtable [-j|-l]    vtable dump via relocations
     vtable-callers    per-slot call sites: direct BL + virtual dispatch (BLR)
@@ -613,6 +614,88 @@ def _scan_mem(imm: int, load: bool):
         yield BASE + i * 4 - HDR, mi
 
 
+def _decode_addsub_imm(w: int):
+    """ADD/SUB (immediate) → (name, rd, rn, imm) ou None."""
+    if ((w >> 23) & 0x7F) != 0b0100010:
+        return None
+    op = (w >> 30) & 1
+    s = (w >> 29) & 1
+    sh = (w >> 22) & 1
+    imm = ((w >> 10) & 0xFFF) << (12 if sh else 0)
+    name = ("sub" if op else "add") + ("s" if s else "")
+    return name, w & 0x1F, (w >> 5) & 0x1F, imm
+
+
+def _decode_mem_reg(w: int) -> dict | None:
+    """STR/LDR (register offset): `str xt,[xn,xm]` → dict ou None.
+
+    Marcador da classe: bits[29:27]=111, bits[25:24]=00, bit21=1, bits[11:10]=10
+    (opc = bit22: 0=store, 1=load). Calibrado no caso real 0x71000ab010
+    (`strb wzr,[x19,x9]` = 0x38296a7f).
+    """
+    if ((w >> 27) & 7) != 0b111 or ((w >> 24) & 3) != 0 or not ((w >> 21) & 1):
+        return None
+    if ((w >> 10) & 3) != 0b10:
+        return None
+    load = bool((w >> 22) & 1)
+    size = (w >> 30) & 3
+    mnem = ("ldr" if load else "str") + {0: "b", 1: "h", 2: "", 3: ""}.get(size, "")
+    return {"mnem": mnem, "rt": w & 0x1F, "rn": (w >> 5) & 0x1F,
+            "rm": (w >> 16) & 0x1F, "option": (w >> 13) & 7, "s": (w >> 12) & 1,
+            "load": load}
+
+
+def _scan_imm_mat(imm: int, want_consumer: bool = True):
+    """Varre .text por materializações do imm em registrador.
+
+    Complemento do _scan_mem: pega writers com offset COMPUTADO
+    (`mov w9,#imm` + `str [x19,x9]`, `add x8,x19,#imm`, `orr w8,wzr,#imm`)
+    que o scan de [reg,#imm] não vê. Yield (va, desc).
+    """
+    _load()
+    d = _DATA
+    assert d is not None
+    _, tf, ts = struct.unpack_from("<III", d, 0x10)
+    end = min(tf + ts, len(d)) & ~3
+    words = struct.unpack_from(f"{end // 4}I", d, 0)
+    for i, w in enumerate(words):
+        t = (w >> 23) & 0x7F                 # fast reject: 3 famílias candidatas
+        if t != 0b100101 and t != 0b100100 and t != 0b0100010:
+            continue
+        desc = None
+        rd = -1
+        mw = _decode_movwide(w)
+        if mw is not None:
+            name, val, hw, rd, sf = mw
+            if name == "movz" and hw == 0 and val == imm:
+                p = "x" if sf else "w"
+                desc = f"mov {p}{rd},#{imm:#x}"
+        else:
+            lw = _decode_logimm(w)
+            if lw is not None:
+                name, mask, rd, sf = lw
+                if mask == imm:
+                    p = "x" if sf else "w"
+                    desc = f"{name} {p}{rd},<rn?>,#{imm:#x}"   # rn fora do decoder
+            else:
+                aw = _decode_addsub_imm(w)
+                if aw is not None:
+                    name, rd, rn, aval = aw
+                    if aval == imm:
+                        sf = (w >> 31) & 1
+                        p = "x" if sf else "w"
+                        desc = f"{name} {p}{rd},{p}{rn},#{imm:#x}"
+        if desc is None:
+            continue
+        if want_consumer:
+            for j in range(i + 1, min(i + 21, len(words))):
+                mj = _decode_mem_reg(words[j])
+                if mj and not mj["load"] and mj["rm"] == (rd & 0x1F):
+                    desc += f"  → {mj['mnem']} @+{4 * (j - i):#x}"
+                    break
+        yield BASE + i * 4 - HDR, desc
+
+
 def _parse_range(tok: str) -> tuple[int, int]:
     """'0xA..0xB' → (lo, hi) in VAs; sides < BASE are treated as module offsets."""
     lo_s, sep, hi_s = tok.partition("..")
@@ -629,7 +712,8 @@ def _parse_range(tok: str) -> tuple[int, int]:
 
 
 def cmd_offset(imm: int, load: bool, msub: str | None = None,
-               rng: tuple[int, int] | None = None) -> None:
+               rng: tuple[int, int] | None = None,
+               computed: bool = False) -> None:
     by_mnem: dict[str, int] = {}
     count = total = 0
     for va, mi in _scan_mem(imm, load):
@@ -660,6 +744,17 @@ def cmd_offset(imm: int, load: bool, msub: str | None = None,
     print(f"# {count}/{total} {kind} de #{imm:#x}"
           + (f"  ({'; '.join(extra)})" if extra else "")
           + (f"  [{detail}]" if detail else ""))
+
+
+    if computed:
+        sites = 0
+        for va, desc in _scan_imm_mat(imm):
+            if rng and not (rng[0] <= va <= rng[1]):
+                continue
+            print(f"  {va:#x}  {desc}  <{name_of(va)}>")
+            sites += 1
+        print(f"# {sites} materializações de #{imm:#x} em registrador "
+              f"(complemento: offsets computados que o scan de [reg,#imm] não vê)")
 
 
 # ---------------------------------------------------------------- bit query
@@ -2053,7 +2148,8 @@ def main() -> None:
                 raise RexUsageError("blr requires a site VA (or -l for the global summary)")
         elif cmd == "offset":
             load = "-l" in rest             # -l = loads; default/-w = stores (writes)
-            rest = [x for x in rest if x not in ("-w", "-l")]
+            comp = "-c" in rest             # -c = materializações (offsets computados)
+            rest = [x for x in rest if x not in ("-w", "-l", "-c")]
             msub = None
             rng = None
             vals = []
@@ -2067,7 +2163,7 @@ def main() -> None:
                     vals.append(x)
             if not vals:
                 raise RexUsageError("offset requires an imm")
-            cmd_offset(int(vals[0], 0), load, msub, rng)
+            cmd_offset(int(vals[0], 0), load, msub, rng, computed=comp)
         elif cmd == "bit":
             if len(rest) < 2:
                 raise RexUsageError("bit requires <off> <bit>")
