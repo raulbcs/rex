@@ -1498,6 +1498,116 @@ def cmd_blr(va: int, list_all: bool = False) -> None:
               "(shared generic offset or unregistered vtable)")
 
 
+def cmd_vtable_find(target: int, slot_off: int | None = None, mod_range: tuple[int, int] | None = None) -> None:
+    """Varre TODOS os clusters de reloc (vtables) e acha os cuja slot casa.
+
+    rex vtable-find <func_va> [slot_off]      # vtable cuja slot_off = func_va
+    rex vtable-find --module <lo> <hi>        # vtables com slot no range
+
+    Pega vtables referenciadas via reloc-holder (não ancoradas por ADRP), que o
+    inventário vtables-all.txt não lista.
+    """
+    tbl, keys = _relocs()
+    BASE_ = BASE
+    needle = target - BASE_ if target else None
+    keys_sorted = sorted(keys)
+    groups = []
+    for s in keys_sorted:
+        if groups and s - groups[-1][-1][0] <= 16:   # gap <= 2 slots
+            groups[-1].append((s, tbl[s]))
+        else:
+            groups.append([(s, tbl[s])])
+    _load_names()
+    hits = 0
+    for g in groups:
+        if len(g) < 2:
+            continue
+        base = g[0][0]
+        slots = dict(g)
+        if mod_range is not None:
+            lo, hi = mod_range
+            matched = any(lo <= BASE_ + a <= hi for _, a in slots.items())
+            if not matched:
+                continue
+        elif slot_off is not None:
+            a = slots.get(base + slot_off)
+            if a != needle:
+                continue
+        else:
+            # any slot == target
+            if needle not in slots.values():
+                continue
+        hits += 1
+        offs = sorted(slots)
+        print(f"vtable @ {BASE_ + base:#x}  slots={len(g)}  range [+{offs[0]-base:#x}..+{offs[-1]-base:#x}]")
+        if mod_range is None and slot_off is None:
+            for s, a in slots.items():
+                if a == needle:
+                    print(f"   [+{s-base:#x}] {BASE_+a:#x}  {name_of(BASE_+a)}")
+    print(f"# {hits} vtable(s) com o critério")
+
+
+def cmd_blr_find(func_va: int) -> None:
+    """Dado um slot de vtable (função), acha os sites BLR que o dispatcham.
+
+    Resolve o padrão recorrente '0 BL callers': procura nos sites BLR de .text
+    cujo slot-offset casa com o offset de func_va nas vtables curadas (vtables.json)
+    e nos clusters de reloc (vtables não registradas).
+    uso: rex blr-find <func_va>"""
+    _load_vt_registry()
+    assert _VT_REGISTRY is not None
+    blr = _blr_scan()
+    tbl, keys = _relocs()
+    needle = func_va - BASE
+    # offsets onde func_va é slot: vtable curadas + clusters de reloc
+    offsets = set()
+    vts = []
+    for nm, ent in _VT_REGISTRY.items():
+        vva = int(ent["va"], 16)
+        slots = _vtable_slots(vva, int(ent.get("slots", 0)))
+        for s, t in slots:
+            if t == func_va:
+                offsets.add(s - vva)
+                vts.append((nm, vva, s - vva))
+    # clusters de reloc (vtables não registradas) que têm func_va como slot
+    raw = []
+    keys_sorted = sorted(keys)
+    groups = []
+    for s in keys_sorted:
+        if groups and s - groups[-1][-1][0] <= 16:
+            groups[-1].append((s, tbl[s]))
+        else:
+            groups.append([(s, tbl[s])])
+    for g in groups:
+        if len(g) < 2:
+            continue
+        base = g[0][0]
+        sl = dict(g)
+        for s, a in sl.items():
+            if a == needle:
+                offsets.add(s - base)
+                raw.append((BASE + base, s - base))
+    if not offsets:
+        print(f"# {name_of(func_va)} não é slot de nenhuma vtable (curada ou reloc)")
+        sys.exit(1)
+    print(f"# {name_of(func_va)} é slot em offset {sorted(offsets)}")
+    for nm, vva, off in sorted(vts, key=lambda x: x[2]):
+        print(f"    vt {nm:<26} {vva:#x}  +{off:#x}")
+    for gva, off in raw:
+        print(f"    vt (reloc)         {gva:#x}  +{off:#x}")
+    sites = [(s, reg, o, name_of(s)) for s, reg, o in blr if o in offsets]
+    if not sites:
+        print(f"# nenhum site BLR dispatcha os offsets {sorted(offsets)} "
+              "(dispatch é por ponteiro runtime, sem ldr de slot fixo)")
+        return
+    print(f"# {len(sites)} site(s) BLR dispatcham esses offsets (por offset, candidatos):")
+    limit = 40
+    for s, reg, o, fn in sites[:limit]:
+        print(f"    {s:#x}  blr {reg}  +{o:#x}  {fn}")
+    if len(sites) > limit:
+        print(f"    … +{len(sites) - limit} (offset genérico compartilhado; use blr <site> p/ uma vtable precisa)")
+
+
 def cmd_reloc(va: int, n: int = 16, back: int = 0, reverse: bool = False) -> None:
     table, keys = _relocs()
     assert table is not None and keys is not None
@@ -1796,6 +1906,7 @@ def cmd_ptr(va: int) -> None:
         if vtn:
             print(f"  → {cand:#x}  vtable {vtn}{('  (' + lbl + ')' if lbl else '')}")
             return
+    for cand, lbl in ((tgt, ""), (tgt + 0x10, "holder+0x10")):
         slots = _vtable_slots(cand, 3)
         if slots:
             first = slots[0][0]
@@ -1816,6 +1927,70 @@ def cmd_ptr(va: int) -> None:
             print(f"  → {tgt:#x}  string {s.decode()!r}")
             return
     print(f"  → {tgt:#x}  (unidentified -- check with rodata/dis)")
+
+
+def _classify_ptr_va(val: int, vt_rev: dict) -> dict:
+    """Classifica um ponteiro NSO (val) num record do DB ptr-dat."""
+    tgt = BASE + val
+    f = fn_of(tgt)
+    if f and tgt == f[0]:
+        short = (_NAMES_R or {}).get(f"{tgt:x}")
+        return {"val": val, "target": tgt, "kind": "fn", "name": short or f[1]}
+    for cand, note in ((tgt, ""), (tgt + 0x10, "holder+0x10")):
+        vtn = vt_rev.get(f"{cand:x}")
+        if vtn:
+            return {"val": val, "target": cand, "kind": "vtable", "name": vtn, "note": note}
+    for cand, note in ((tgt, ""), (tgt + 0x10, "holder+0x10")):
+        slots = _vtable_slots(cand, 3)
+        if slots:
+            return {"val": val, "target": cand, "kind": "vtable_raw", "slots": len(slots),
+                    "first": slots[0][0], "note": note}
+    gn = (_GLOBALS_R or {}).get(f"{tgt:x}")
+    if gn:
+        return {"val": val, "target": tgt, "kind": "global", "name": gn}
+    sfo = va_to_file(tgt)
+    if sfo is not None:
+        end = _DATA.find(b"\x00", sfo)
+        s = _DATA[sfo:end if end > 0 else sfo + 64]
+        if s and all(32 <= b < 127 for b in s):
+            return {"val": val, "target": tgt, "kind": "string", "name": s.decode(errors="replace")[:96]}
+    return {"val": val, "target": tgt, "kind": "obj"}
+
+
+def cmd_ptrdat(segment: str = "data") -> None:
+    """Resolve TODOS os PTR_DAT_ nomeados pelo Ghidra (alvo de adrp/ldr no .text) → DB ptr-dat.json.
+    Extrai os endereços do corpus decomp-ann, lê cada qword no binário e classifica:
+    função / vtable registrada / vtable não registrada / global / string / objeto.
+    uso: rex ptr-dat"""
+    _load()
+    _load_globals()
+    _load_names()
+    _load_vt_registry()
+    assert _DATA is not None
+    d = _DATA
+    vt_rev = {ent.get("va"): nm for nm, ent in (_VT_REGISTRY or {}).items()}
+    import glob as _g
+    import re as _re
+    syms = set()
+    for fp in _g.glob(str(_root() / "data" / "decomp-ann" / "shard-*.txt")):
+        for m in _re.finditer(r"PTR_DAT_([0-9a-f]+)", open(fp, errors="ignore").read()):
+            syms.add(int(m.group(1), 16))
+    out = {}
+    for va in syms:
+        fo = va_to_file(va)
+        if fo is None:
+            continue
+        val = struct.unpack_from("<Q", d, fo)[0]
+        if val >= 0x2000000:
+            continue  # imediate/float (absolute), não offset NSO
+        tgt = BASE + val
+        if va_to_file(tgt) is None:
+            continue
+        out[f"{va:x}"] = _classify_ptr_va(val, vt_rev)
+    import json as _json
+    p = _root() / "data" / "ptr-dat.json"
+    _json.dump(out, open(p, "w"), indent=1, ensure_ascii=False)
+    print(f"ptr-dat: {len(out)}/{len(syms)} PTR_DAT resolvidos → {p}")
 
 
 def cmd_xref(va: int, limit: int = 200) -> None:
@@ -2096,6 +2271,11 @@ def main() -> None:
             cmd_callers(_parse_va(rest[0]))
         elif cmd == "ptr":
             cmd_ptr(_parse_va(rest[0]))
+        elif cmd == "ptr-dat":
+            seg = "data"
+            if rest and rest[0] in ("data", "rodata", "all"):
+                seg = rest[0]
+            cmd_ptrdat(seg)
         elif cmd == "xref":
             cmd_xref(_parse_va(rest[0]))
         elif cmd == "dis":
@@ -2125,6 +2305,18 @@ def main() -> None:
             la = "-l" in rest
             rest2 = [x for x in rest if not x.startswith("-")]
             cmd_ctor(_parse_va(rest2[0]) if rest2 else 0, list_all=la)
+        elif cmd == "vtable-find":
+            mod_range = None
+            slot_off = None
+            rr = [x for x in rest if not x.startswith("-")]
+            if "--module" in rest:
+                mod_range = (_parse_va(rr[0]), _parse_va(rr[1]))
+                cmd_vtable_find(0, None, mod_range)
+            else:
+                tgt = _parse_va(rr[0])
+                if len(rr) > 1:
+                    slot_off = int(rr[1], 0)
+                cmd_vtable_find(tgt, slot_off)
         elif cmd == "vtable":
             if rest and rest[0] == "-l":
                 cmd_vtable(0, list_all=True)
@@ -2146,6 +2338,10 @@ def main() -> None:
                 cmd_blr(_parse_va(rest[0]))
             else:
                 raise RexUsageError("blr requires a site VA (or -l for the global summary)")
+        elif cmd == "blr-find":
+            if not rest:
+                raise RexUsageError("blr-find requires a slot/func VA")
+            cmd_blr_find(_parse_va(rest[0]))
         elif cmd == "offset":
             load = "-l" in rest             # -l = loads; default/-w = stores (writes)
             comp = "-c" in rest             # -c = materializações (offsets computados)
