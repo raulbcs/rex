@@ -41,17 +41,25 @@ paths are hardcoded. Python 3 stdlib only.
 from __future__ import annotations
 
 import bisect
+import collections
+import glob
 import json
+import os
 import re
+import shutil
 import struct
+import subprocess
 import sys
+import tempfile
+from collections import Counter
 from pathlib import Path
 
-# Config: env > ~/.rexrc -- NO project paths in code (rexconfig.py).
-# ROOT is lazy: only resolves (and requires REX_ROOT) when a command needs data.
-import os
-import rexconfig
+try:  # capstone é opcional (fallback para scan por máscara de opcode)
+    from capstone import Cs, CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN
+except ImportError:
+    Cs = CS_ARCH_ARM64 = CS_MODE_LITTLE_ENDIAN = None
 
+import rexconfig
 
 # Exit codes: 0 ok; 1 no results (search-style); 2 usage; 3 config; 4 tool failure
 class RexUsageError(Exception):
@@ -252,11 +260,10 @@ def _disasm(va: int, n: int) -> list[str]:
     d = _DATA
     off = va - BASE + HDR
     try:
-        from capstone import Cs, CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN
         md = Cs(CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN)
         return [f"{ins.address:#x}: {ins.mnemonic:8s} {ins.op_str}"
                 for ins in md.disasm(d[off:off + n * 4], va)]
-    except ImportError:
+    except (ImportError, TypeError):
         out = []
         for i in range(n):
             w = struct.unpack_from("<I", d, off + i * 4)[0]
@@ -1132,7 +1139,7 @@ def cmd_ctor(va: int, json_out: bool = False, list_all: bool = False) -> None:
             state.clear()
             holder_info.clear()
             continue
-        m = line_re.match(line)
+        m = linere.match(line)
         if not m:
             continue
         _, mnem, ops = m.groups()
@@ -1205,24 +1212,23 @@ def _ctor_step(mnem: str, ops: str, state, holder_info, installs, calls, new_siz
     receiving the object pointer (x0-x3 on entry + callee-saveds that
     receive a copy of it). Install = store of holder-value into [this,#imm].
     """
-    import re as _re
     parts = [p.strip() for p in ops.split(",")]
 
     def rk(t: str) -> str | None:
-        m = _re.match(r"^[xw](\d+)$", t)
+        m = re.match(r"^[xw](\d+)$", t)
         return m.group(1) if m else None
 
     dst0 = rk(parts[0]) if parts else None
 
     if mnem == "adrp":
-        m = _re.match(r"([xw]\d+)\s*,\s*(0x[0-9a-f]+)", ops)
+        m = re.match(r"([xw]\d+)\s*,\s*(0x[0-9a-f]+)", ops)
         if m and rk(m.group(1)) is not None:
             state[rk(m.group(1))] = int(m.group(2), 16)
         return
 
     if mnem == "ldr":
         # ldr x8,[x8,#imm] -- if the base is .data and the reloc resolves, it's a holder
-        mb = _re.search(r"\[([^\]]*)\]", ops)
+        mb = re.search(r"\[([^\]]*)\]", ops)
         if not mb:
             return
         cparts = [p.strip() for p in mb.group(1).split(",")]
@@ -1246,7 +1252,7 @@ def _ctor_step(mnem: str, ops: str, state, holder_info, installs, calls, new_siz
         return
 
     if mnem == "add":
-        m = _re.match(r"([xw]\d+)\s*,\s*([xw]\d+)\s*,\s*#(0x[0-9a-f]+|\d+)", ops)
+        m = re.match(r"([xw]\d+)\s*,\s*([xw]\d+)\s*,\s*#(0x[0-9a-f]+|\d+)", ops)
         if m:
             d, b = rk(m.group(1)), rk(m.group(2))
             if d is not None and b is not None:
@@ -1261,7 +1267,7 @@ def _ctor_step(mnem: str, ops: str, state, holder_info, installs, calls, new_siz
 
     if mnem == "str":
         # install: str xVal,[xThis,#imm] with xVal coming from a holder
-        br = _re.search(r"\[([^\]]*)\]", ops)
+        br = re.search(r"\[([^\]]*)\]", ops)
         if not br:
             return
         cparts = [p.strip() for p in br.group(1).split(",")]
@@ -1320,14 +1326,13 @@ def cmd_vtable(va: int, json_out: bool = False, max_slots: int = 0, list_all: bo
         ent = _VT_REGISTRY[reg_nm]
         print(f"# {reg_nm}: {ent.get('class', '?')} -- fonte: {ent.get('doc', '?')}")
     if json_out:
-        import json as _json
         payload = []
         for s, t in slots:
             payload.append(
                 {"slot": f"{s:#x}", "offset": s - va, "target": f"{t:#x}",
                  "name": (_NAMES_R or {}).get(f"{t:x}", "")}
             )
-        print(_json.dumps(payload, indent=1))
+        print(json.dumps(payload, indent=1))
         return
     for s, v in slots:
         nm = (_NAMES_R or {}).get(f"{v:x}", "")
@@ -1356,12 +1361,10 @@ def _blr_scan() -> list[tuple[int, str, int | None]]:
     assert d is not None
     tfo, tmo, ts = struct.unpack_from("<III", d, 0x10)  # NSO: (file, mem, size)
     end = min(tfo + ts, len(d)) & ~3
-    import re as _re
     try:
-        from capstone import Cs, CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN
         md = Cs(CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN)
         use_cs = True
-    except ImportError:
+    except (ImportError, TypeError):
         md, use_cs = None, False
     out: list[tuple[int, str, int | None]] = []
     for i in range(end // 4):
@@ -1379,7 +1382,7 @@ def _blr_scan() -> list[tuple[int, str, int | None]]:
                     if p.mnemonic in ("blr", "ret", "b", "br", "bl", "cbz", "tbz", "b.hi"):
                         break
                     continue
-                m = _re.match(r"x(\d+),\s*\[x(\d+)(?:,\s*#(0x[0-9a-f]+|\d+))?\]", p.op_str)
+                m = re.match(r"x(\d+),\s*\[x(\d+)(?:,\s*#(0x[0-9a-f]+|\d+))?\]", p.op_str)
                 if m and m.group(1) == m.group(2) and m.group(3):
                     slot_off = int(m.group(3), 0)
                     break
@@ -1463,7 +1466,6 @@ def cmd_blr(va: int, list_all: bool = False) -> None:
     if list_all:
         print(f"# {len(blr)} BLR sites em .text; "
               f"{sum(1 for _,_,o in blr if o is not None)} com slot-offset resolvido")
-        from collections import Counter
         c = Counter(o for _, _, o in blr if o is not None)
         for off, n in c.most_common(20):
             print(f"  offset {off:#x}: {n} sites")
@@ -1550,76 +1552,85 @@ def cmd_vtable_find(target: int, slot_off: int | None = None, mod_range: tuple[i
 def cmd_blr_find(func_va: int) -> None:
     """Dado um slot de vtable (função), acha os sites BLR que o dispatcham.
 
-    Resolve o padrão recorrente '0 BL callers': procura nos sites BLR de .text
-    cujo slot-offset casa com o offset de func_va nas vtables curadas (vtables.json)
-    e nos clusters de reloc (vtables não registradas).
+    Spot-on: cruza os sites BLR com as funções que referenciam a vtable
+    específica (factory) e mede a especificidade do offset. Se o offset é
+    exclusivo da vtable, os sites são os dispatchs reais; se genérico,
+    mostra os sites em funções relacionadas à vtable e colapsa o resto.
     uso: rex blr-find <func_va>"""
     _load_vt_registry()
     assert _VT_REGISTRY is not None
     blr = _blr_scan()
     tbl, keys = _relocs()
     needle = func_va - BASE
-    # offsets onde func_va é slot: vtable curadas + clusters de reloc
-    offsets = set()
-    vts = []
+    # vtables registradas onde func_va é slot + offsets
+    my_vts = []
+    same_off_vts = collections.defaultdict(set)  # off -> vtable names (ruído)
     for nm, ent in _VT_REGISTRY.items():
         vva = int(ent["va"], 16)
         slots = _vtable_slots(vva, int(ent.get("slots", 0)))
         for s, t in slots:
+            off = s - vva
             if t == func_va:
-                offsets.add(s - vva)
-                vts.append((nm, vva, s - vva))
-    # clusters de reloc (vtables não registradas) que têm func_va como slot
-    raw = []
-    keys_sorted = sorted(keys)
-    groups = []
-    for s in keys_sorted:
-        if groups and s - groups[-1][-1][0] <= 16:
-            groups[-1].append((s, tbl[s]))
-        else:
-            groups.append([(s, tbl[s])])
-    for g in groups:
-        if len(g) < 2:
-            continue
-        base = g[0][0]
-        sl = dict(g)
-        for s, a in sl.items():
-            if a == needle:
-                offsets.add(s - base)
-                raw.append((BASE + base, s - base))
-    if not offsets:
-        print(f"# {name_of(func_va)} não é slot de nenhuma vtable (curada ou reloc)")
-        sys.exit(1)
-    print(f"# {name_of(func_va)} é slot em offset {sorted(offsets)}")
-    for nm, vva, off in sorted(vts, key=lambda x: x[2]):
-        print(f"    vt {nm:<26} {vva:#x}  +{off:#x}")
-    for gva, off in raw:
-        print(f"    vt (reloc)         {gva:#x}  +{off:#x}")
-    sites = [(s, reg, o, name_of(s)) for s, reg, o in blr if o in offsets]
-    if not sites:
-        print(f"# nenhum site BLR dispatcha os offsets {sorted(offsets)} "
-              "(dispatch é por ponteiro runtime, sem ldr de slot fixo)")
+                my_vts.append((nm, vva, off))
+            else:
+                same_off_vts[off].add(nm)
+    if not my_vts:
+        print(f"# {name_of(func_va)} não é slot de vtable registrada (vtables.json)")
         return
-    print(f"# {len(sites)} site(s) BLR dispatcham esses offsets → {len(set(fn_of(s)[0] for s,_,_,_ in sites))} funções:")
-    from collections import defaultdict
-    by_fn = defaultdict(list)
-    for s, reg, o, _fn in sites:
-        base = fn_of(s)
-        key = base[1] if base else _fn
-        by_fn[key].append((s, reg, o))
-    # ordena funções por nº de sites (mais prováveis primeiro)
-    ranked = sorted(by_fn.items(), key=lambda kv: -len(kv[1]))
-    for fn, lst in ranked:
-        offs = sorted({o for _, _, o in lst})
-        if len(lst) == 1:
-            s, reg, o = lst[0]
-            print(f"    {fn}  blr {reg} +{o:#x}  @{s:#x}")
+    offs = {off for _, _, off in my_vts}
+    print(f"# {name_of(func_va)} é slot de {len(my_vts)} vtable(s) em offset {sorted(offs)}")
+    for nm, vva, off in sorted(my_vts, key=lambda x: x[2]):
+        print(f"    vt {nm:<26} {vva:#x}  +{off:#x}")
+    # especificidade do offset (ruído de outras vtables com slot no mesmo off)
+    for off in sorted(offs):
+        noise = same_off_vts[off] - {nm for nm, _, o in my_vts if o == off}
+        if noise:
+            print(f"    aviso: +{off:#x} é genérico ({len(noise)} outras vtables registradas com slot lá)")
         else:
-            print(f"    {fn}  ({len(lst)} sites, offsets {[hex(o) for o in offs]})")
-            for s, reg, o in lst[:4]:
-                print(f"        @{s:#x}  blr {reg} +{o:#x}")
-            if len(lst) > 4:
-                print(f"        … +{len(lst) - 4}")
+            print(f"    +{off:#x} exclusivo de F nas vtables registradas → sites = dispatchs reais")
+    # sites BLR candidatos
+    sites = [(s, reg, o, fn_of(s)) for s, reg, o in blr if o in offs]
+    if not sites:
+        print(f"# nenhum site BLR dispatcha {sorted(offs)}")
+        return
+    # funções que referenciam as vtables específicas (factory/uso) via xref
+    vt_ref = set()
+    hdr = re.compile(r"^// (?:===== )?(\S+) @ [0-9a-f]+(?: =====)?$")
+    for nm, vva, off in my_vts:
+        hexn = f"{vva:x}"
+        needles = [hexn, f"0x{hexn}"]
+        for corpus in ("decomp-full", "asm-full"):
+            for fp in glob.glob(str(_root() / "data" / corpus / "shard-*.txt")):
+                cur = "?"
+                with open(fp, errors="replace") as fh:
+                    for line in fh:
+                        m = hdr.match(line.strip())
+                        if m:
+                            cur = m.group(1)
+                            continue
+                        if any(n in line for n in needles):
+                            vt_ref.add(cur)
+    # classifica: spot (função referencia a vtable ou é caller da factory) vs genérico
+    spot = []
+    generic = collections.defaultdict(int)
+    for s, reg, o, f in sites:
+        base = f[0] if f else s
+        fn_name = f[1] if f else ""
+        if fn_name in vt_ref:
+            spot.append((s, reg, o, fn_name))
+        else:
+            generic[(o, fn_name)] += 1
+    if spot:
+        print(f"# {len(spot)} site(s) BLR SPOT-ON (função referencia a vtable):")
+        for s, reg, o, fn in spot:
+            print(f"    {s:#x}  blr {reg} +{o:#x}  {fn}")
+    else:
+        print(f"# 0 site(s) BLR em função que referencia a vtable (dispatch é de objeto criado em outra função)")
+    print(f"# resto: {len(generic)} função(ões) genérica(s) por offset (objeto herdado de outra função):")
+    for (o, fn), n in sorted(generic.items(), key=lambda kv: -kv[1])[:15]:
+        print(f"    +{o:#x} {fn or '?'}  ({n} site(s))")
+    if len(generic) > 15:
+        print(f"    … +{len(generic) - 15}")
 
 
 def cmd_reloc(va: int, n: int = 16, back: int = 0, reverse: bool = False) -> None:
@@ -1983,11 +1994,9 @@ def cmd_ptrdat(segment: str = "data") -> None:
     assert _DATA is not None
     d = _DATA
     vt_rev = {ent.get("va"): nm for nm, ent in (_VT_REGISTRY or {}).items()}
-    import glob as _g
-    import re as _re
     syms = set()
-    for fp in _g.glob(str(_root() / "data" / "decomp-ann" / "shard-*.txt")):
-        for m in _re.finditer(r"PTR_DAT_([0-9a-f]+)", open(fp, errors="ignore").read()):
+    for fp in glob.glob(str(_root() / "data" / "decomp-ann" / "shard-*.txt")):
+        for m in re.finditer(r"PTR_DAT_([0-9a-f]+)", open(fp, errors="ignore").read()):
             syms.add(int(m.group(1), 16))
     out = {}
     for va in syms:
@@ -2001,9 +2010,8 @@ def cmd_ptrdat(segment: str = "data") -> None:
         if va_to_file(tgt) is None:
             continue
         out[f"{va:x}"] = _classify_ptr_va(val, vt_rev)
-    import json as _json
     p = _root() / "data" / "ptr-dat.json"
-    _json.dump(out, open(p, "w"), indent=1, ensure_ascii=False)
+    json.dump(out, open(p, "w"), indent=1, ensure_ascii=False)
     print(f"ptr-dat: {len(out)}/{len(syms)} PTR_DAT resolvidos → {p}")
 
 
@@ -2018,11 +2026,10 @@ def cmd_xref(va: int, limit: int = 200) -> None:
     gn = (_GLOBALS_R or {}).get(hexn)
     if gn:
         needles.append(gn)
-    import glob as _g
     hdr = re.compile(r"^// (?:===== )?(\S+) @ [0-9a-f]+(?: =====)?$")
     hits = 0
     for corpus in ("decomp-full", "asm-full"):
-        for fp in sorted(_g.glob(str(_root() / "data" / corpus / "shard-*.txt"))):
+        for fp in sorted(glob.glob(str(_root() / "data" / corpus / "shard-*.txt"))):
             cur = "?"
             with open(fp, errors="replace") as fh:
                 for i, line in enumerate(fh, 1):
@@ -2137,9 +2144,6 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
     $REX_ROOT/ghidra-project), REX_GPR (default: first .gpr in the project dir), REX_PROGRAM
     (default uncompressed_main), GHIDRA_HOME.
     """
-    import glob as _glob
-    import shutil
-    import subprocess
 
     home = Path(__file__).resolve().parent
     # dumpers: explicit config is LAW (if set and invalid → error, no silent
@@ -2261,7 +2265,6 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
         shutil.rmtree(build, ignore_errors=True)
         # Ghidra progress dump output goes to ROOT/data/*/progress.log
 
-    import tempfile
     if target in ("all", "decomp"):
         _run_dump("FullDecompDump", _root() / "data" / "decomp-full", resume_ok=True)
     if target in ("all", "asm"):
