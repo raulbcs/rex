@@ -1600,12 +1600,26 @@ def cmd_blr_find(func_va: int) -> None:
         print(f"# nenhum site BLR dispatcha os offsets {sorted(offsets)} "
               "(dispatch é por ponteiro runtime, sem ldr de slot fixo)")
         return
-    print(f"# {len(sites)} site(s) BLR dispatcham esses offsets (por offset, candidatos):")
-    limit = 40
-    for s, reg, o, fn in sites[:limit]:
-        print(f"    {s:#x}  blr {reg}  +{o:#x}  {fn}")
-    if len(sites) > limit:
-        print(f"    … +{len(sites) - limit} (offset genérico compartilhado; use blr <site> p/ uma vtable precisa)")
+    print(f"# {len(sites)} site(s) BLR dispatcham esses offsets → {len(set(fn_of(s)[0] for s,_,_,_ in sites))} funções:")
+    from collections import defaultdict
+    by_fn = defaultdict(list)
+    for s, reg, o, _fn in sites:
+        base = fn_of(s)
+        key = base[1] if base else _fn
+        by_fn[key].append((s, reg, o))
+    # ordena funções por nº de sites (mais prováveis primeiro)
+    ranked = sorted(by_fn.items(), key=lambda kv: -len(kv[1]))
+    for fn, lst in ranked:
+        offs = sorted({o for _, _, o in lst})
+        if len(lst) == 1:
+            s, reg, o = lst[0]
+            print(f"    {fn}  blr {reg} +{o:#x}  @{s:#x}")
+        else:
+            print(f"    {fn}  ({len(lst)} sites, offsets {[hex(o) for o in offs]})")
+            for s, reg, o in lst[:4]:
+                print(f"        @{s:#x}  blr {reg} +{o:#x}")
+            if len(lst) > 4:
+                print(f"        … +{len(lst) - 4}")
 
 
 def cmd_reloc(va: int, n: int = 16, back: int = 0, reverse: bool = False) -> None:
