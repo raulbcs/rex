@@ -1139,7 +1139,7 @@ def cmd_ctor(va: int, json_out: bool = False, list_all: bool = False) -> None:
             state.clear()
             holder_info.clear()
             continue
-        m = linere.match(line)
+        m = line_re.match(line)
         if not m:
             continue
         _, mnem, ops = m.groups()
