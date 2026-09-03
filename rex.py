@@ -2206,6 +2206,19 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
         tsv = outdir / "functions.tsv"
         if resume_ok and tsv.exists() and not force:
             print(f"# {cls}: RESUME -- functions.tsv exists; completing missing ones")
+        if force:
+            # full regen REAL: o resume do dumper vive no functions.tsv (aberto
+            # em APPEND) e a numeracao de shards continua do primeiro arquivo
+            # LIVRE -- sem limpar antes, tsv/shards velhos nunca sao
+            # sobrescritos e tudo 'ok' e pulado de novo (skipped=total).
+            stale = [outdir / "functions.tsv", outdir / "progress.log"]
+            stale += sorted(outdir.glob("shard-*.txt"))
+            n = 0
+            for p in stale:
+                if p.exists():
+                    p.unlink()
+                    n += 1
+            print(f"# {cls}: --force limpeza previa ({n} arquivos)")
         print(f"== {cls} → {outdir}")
         # 1. fantasmas + cache OSGi
         _osgiclear(cls)
