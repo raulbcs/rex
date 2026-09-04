@@ -56,6 +56,8 @@ rex ann <va>                 # body + semantic annotations  <-- use this first
 rex callers <va|name>        # all BL callers
 rex offset 0x1e4 -w          # who writes to this struct offset
 rex vtable <va|name>         # dump a vtable (via relocations)
+rex rela <va> [-a]           # .rela.dyn: dump / reverse (who points at VA)
+rex dynsym <substring>       # .dynsym symbols (nn:: imports, RTTI) + reloc counts
 rex xref <va|name>           # every reference in the corpus
 rex headers 0x1e4            # which struct has a field here (C++ headers)
 ```

@@ -27,6 +27,8 @@ Commands (full details: docs/REFERENCE.md):
     blr [-l]          resolve a virtual dispatch site / global BLR stats
     ctor              static ctor chain: holders -> installed vtables
     reloc [-a]        NSO relocation entries / reverse (which vtable slots)
+    rela [-a] [-t T]  .rela.dyn anchored table: summary / dump / reverse (dono de VA)
+    dynsym [q] [-l]   .dynsym symbols (imports nn::, RTTI) + relocation counts
     ptr               resolve a .data/.rodata pointer
     adrp              ADRP+ADD/LDR materializations of a VA
     xref              every reference to a VA/global in the corpus
@@ -964,56 +966,153 @@ def cmd_bit(imm: int, bit: int, rng: tuple[int, int] | None = None) -> None:
              or "none"))
 
 
-# ---------------------------------------------------------------- relocations
+# ---------------------------------------------------------------- .rela.dyn
 
-_RELOC_TABLE = None      # slot_mem_off -> addend (R_AARCH64_RELATIVE limpos)
-_RELOC_KEYS = None       # slots ordenados
+RELA_TYPES = {
+    0x101: "ABS64",      # word64 = S + A (sym-carrying: RTTI type_info, imports)
+    0x401: "GLOB_DAT",   # slot de import/export de dados (nn:: SDK)
+    0x402: "JUMP_SLOT",  # slot de import de chamada (nn:: SDK)
+    0x403: "RELATIVE",   # word64 = base + A (vtables, PTR_DAT)
+    0x404: "TLS_DTPMOD",
+    0x405: "TLS_DTPREL",
+    0x406: "TLS_TPREL",
+    0x407: "TLSDESC",
+}
+
+_RELA = None             # [(slot_moff, type, sym_idx, addend)] na ordem da tabela
+_RELA_BY_SLOT = None     # slot_moff -> (type, sym_idx, addend)
 
 
-def _relocs():
-    """Tabela de relocations do NSO: triplets 0x18 (r_offset, 0x403, addend).
+def _rela():
+    """Tabela .rela.dyn do NSO0, ancorada no próprio formato (não-heurística).
 
-    Contiguous clusters (stride 0x18, ≥2 records) -- kills random
-    false-positives in rodata. r_offset/addend are offsets relative to BASE.
+    No NSO0 a tabela NÃO é campo de header: mora no INÍCIO do segmento .ro,
+    depois da string de path de build do módulo e ANTES do .dynsym (header
+    0x98)/.rodata. Entrada = tripleta 24 B (r_offset, r_info, r_addend);
+    r_offset/addend são módulo-relativos (VA = BASE + valor).
     """
-    global _RELOC_TABLE, _RELOC_KEYS
-    if _RELOC_TABLE is not None:
-        return _RELOC_TABLE, _RELOC_KEYS
+    global _RELA, _RELA_BY_SLOT
+    if _RELA is not None:
+        return _RELA, _RELA_BY_SLOT
     _load()
     d = _DATA
     assert d is not None
-    da_f, da_m, da_s = struct.unpack_from("<III", d, 0x30)
-    slo, shi = da_m, da_m + da_s
-    n8 = len(d) // 8
-    recs = []                          # (info qword index, slot, addend)
-    pat = struct.pack("<Q", 0x403)
-    pos = 0
-    while True:
-        i = d.find(pat, pos)
-        if i < 0:
+    ro_f, ro_m, ro_s = struct.unpack_from("<III", d, 0x20)
+    dm = struct.unpack_from("<I", d, 0x34)[0]
+    dsz = struct.unpack_from("<I", d, 0x38)[0]
+    bss = struct.unpack_from("<I", d, 0x3C)[0]
+    dlo, dhi = dm, dm + dsz + bss          # slots caem em .data/.bss
+
+    def _q(f: int) -> int:
+        return struct.unpack_from("<Q", d, ro_f + f)[0]
+
+    # anchor = primeira tripleta 24-alinhada válida no começo do .ro
+    anchor = None
+    for off in range(0, 0x400, 24):
+        if dlo <= _q(off) < dhi and (_q(off + 8) & 0xffffffff) in RELA_TYPES:
+            anchor = off
             break
-        pos = i + 1
-        if i % 8:
-            continue                   # misaligned: not a valid triplet
-        qi = i // 8
-        if 0 < qi < n8 - 1:
-            slot = struct.unpack_from("<Q", d, (qi - 1) * 8)[0]
-            add = struct.unpack_from("<Q", d, (qi + 1) * 8)[0]
-            if slo <= slot < shi and add < shi:
-                recs.append((qi, slot, add))
-    table = {}
-    j = 0
-    while j < len(recs):
-        k = j
-        while k + 1 < len(recs) and recs[k + 1][0] - recs[k][0] == 3:  # 3 qwords = 0x18 B
-            k += 1
-        if k > j:                      # cluster ≥2: a real table
-            for _, s, a in recs[j:k + 1]:
-                table[s] = a
-        j = k + 1
-    _RELOC_TABLE = table
-    _RELOC_KEYS = sorted(table)
-    return _RELOC_TABLE, _RELOC_KEYS
+    if anchor is None:
+        raise RexToolError("rela.dyn: anchor não achado no início do .ro (é NSO0?)")
+
+    end = ro_s
+    dy_off, dy_sz = struct.unpack_from("<II", d, 0x98)   # .dynsym (rel. ao ro)
+    if dy_sz:
+        end = min(end, dy_off)
+    entries = []
+    pos = anchor
+    while pos + 24 <= end:
+        s, i, a = _q(pos), _q(pos + 8), _q(pos + 16)
+        if (i & 0xffffffff) not in RELA_TYPES:
+            skip = next((k for k in (8, 16)
+                         if pos + k + 24 <= end
+                         and (_q(pos + k + 8) & 0xffffffff) in RELA_TYPES), None)
+            if skip is None:                # acabou a tabela densa
+                break
+            pos += skip
+            continue
+        entries.append((s, i & 0xffffffff, i >> 32, a))
+        pos += 24
+    if not entries:
+        raise RexToolError("rela.dyn: anchor válido mas tabela vazia")
+    _RELA = entries
+    _RELA_BY_SLOT = {s: (t, sym, a) for s, t, sym, a in entries}
+    return _RELA, _RELA_BY_SLOT
+
+
+def _relocs():
+    """View RELATIVE da .rela.dyn (compat: dict slot->addend, keys ordenados).
+
+    Fonte = tabela ancorada (_rela), não mais scan por clusters: recupera as
+    entradas isoladas que o filtro de cluster descartava.
+    """
+    entries, _ = _rela()
+    table = {s: a for s, t, _, a in entries if t == 0x403}
+    return table, sorted(table)
+
+
+_DYNSYM = None           # [idx] -> (nome mangled, st_value, st_size)
+
+
+def _dynsym_names():
+    """.dynsym do NSO (header 0x98, rel. ao .ro): [idx] -> (nome, st_value, st_size)."""
+    global _DYNSYM
+    if _DYNSYM is not None:
+        return _DYNSYM
+    _load()
+    d = _DATA
+    ro_f = struct.unpack_from("<I", d, 0x20)[0]
+    ds_o, ds_s = struct.unpack_from("<II", d, 0x90)     # .dynstr (rel. ao ro)
+    dy_o, dy_s = struct.unpack_from("<II", d, 0x98)     # .dynsym
+    if not dy_s:
+        raise RexToolError(".dynsym vazio -- binário não tem dynsym")
+    names = []
+    for i in range(dy_s // 24):
+        base = ro_f + dy_o + i * 24
+        st_name = struct.unpack_from("<I", d, base)[0]
+        st_value, st_size = struct.unpack_from("<QQ", d, base + 8)
+        p = d.find(b"\0", ro_f + ds_o + st_name) if st_name else -1
+        nm = d[ro_f + ds_o + st_name:p].decode("utf-8", "replace") if st_name and p > 0 else ""
+        names.append((nm, st_value, st_size))
+    _DYNSYM = names
+    return names
+
+
+_DEMANGL_CACHE: dict[str, str] = {}
+
+
+def _demangle(m: str) -> str:
+    """Demangle Itanium via c++filt (LLVM, presente no macOS); fallback = mangled."""
+    if not m:
+        return m
+    if m in _DEMANGL_CACHE:
+        return _DEMANGL_CACHE[m]
+    r = m
+    try:
+        out = subprocess.run(["c++filt", m], capture_output=True, text=True,
+                             timeout=5).stdout.strip()
+        if out and not out.startswith("_Z"):
+            r = out
+    except Exception:
+        pass
+    _DEMANGL_CACHE[m] = r
+    return r
+
+
+def _rela_tag(t: int) -> str:
+    return {"RELATIVE": "REL", "GLOB_DAT": "GLOB", "JUMP_SLOT": "JUMP",
+            "ABS64": "ABS"}.get(RELA_TYPES.get(t, "?"), "TLS")
+
+
+def _rela_line(slot_moff: int, t: int, sym: int, a: int, mark: bool = False) -> str:
+    s_va = BASE + slot_moff
+    tail = "  <<<" if mark else ""
+    if t == 0x403:                                  # RELATIVE: addend é o alvo
+        return f"  slot {s_va:#x} = {BASE + a:#x}  {_reloc_label(a)}{tail}"
+    names = _dynsym_names()
+    nm = names[sym][0] if 0 < sym < len(names) else f"sym{sym}"
+    extra = f" +{a:#x}" if a else ""
+    return f"  slot {s_va:#x} [{_rela_tag(t)}] {_demangle(nm)}{extra}{tail}"
 
 
 def _reloc_label(addend: int) -> str:
@@ -1671,6 +1770,82 @@ def cmd_blr_find(func_va: int) -> None:
         print(f"    +{o:#x} {fn or '?'}  ({n} site(s))")
     if len(generic) > 15:
         print(f"    … +{len(generic) - 15}")
+
+
+def cmd_rela(va: int | None, n: int = 16, back: int = 0, reverse: bool = False,
+             tfilter: str | None = None) -> None:
+    """rela: resumo da tabela / dump a partir de um slot / reverse por addend."""
+    entries, _ = _rela()
+    tf = None
+    if tfilter:
+        want = tfilter.upper().replace("_", "")
+        tf = next((code for code, nm in RELA_TYPES.items()
+                   if nm.replace("_", "").startswith(want)
+                   or want.startswith(nm.replace("_", ""))), None)
+        if tf is None:
+            raise RexUsageError(f"tipo desconhecido: {tfilter} "
+                                f"({', '.join(RELA_TYPES.values())})")
+    view = [(s, t, sym, a) for s, t, sym, a in entries if tf is None or t == tf]
+    if va is None:                                   # resumo
+        counts = Counter(RELA_TYPES[t] for _, t, _, _ in view)
+        print(f"# .rela.dyn: {len(view)} entradas "
+              + (f"(filtro {tfilter}) " if tf else "")
+              + f"de {len(entries)} "
+              f"(slots {BASE + entries[0][0]:#x} .. {BASE + entries[-1][0]:#x})")
+        for nm, c in counts.most_common():
+            print(f"  {nm:10s} {c:7d}")
+        return
+    if reverse:                                      # quem tem addend = va
+        m = va - BASE
+        hits = [(s, t, sym, a) for s, t, sym, a in view if a == m]
+        if not hits:
+            print(f"# nenhuma entrada .rela.dyn com addend {va:#x} "
+                  f"({len(view)} entradas no filtro)")
+            return
+        for s, t, sym, a in hits:
+            print(_rela_line(s, t, sym, a))
+        n_rel = sum(1 for _, t, _, _ in hits if t == 0x403)
+        print(f"# {len(hits)} entradas com addend {va:#x} "
+              f"({n_rel} RELATIVE = células estáticas; resto = refs de import/RTTI)")
+        return
+    m = va - BASE                                    # dump forward a partir do slot
+    keys = [s for s, _, _, _ in view]
+    i = bisect.bisect_left(keys, m - back * 8)
+    if i >= len(keys):
+        print(f"# sem entradas .rela.dyn a partir de {va:#x}")
+        return
+    shown = 0
+    for s, t, sym, a in view[i:]:
+        if shown >= n:
+            break
+        print(_rela_line(s, t, sym, a, mark=(s == m)))
+        shown += 1
+    print(f"# {shown} entradas de {va:#x} em diante -- tabela totals {len(entries)}")
+
+
+def cmd_dynsym(query: str | None, list_all: bool = False) -> None:
+    """dynsym: símbolos do NSO (imports nn::, RTTI) + contagem de relocations."""
+    names = _dynsym_names()
+    entries, _ = _rela()
+    ref = Counter(sym for _, _, sym, _ in entries if sym)
+    if not list_all and not query:
+        print(f"# .dynsym: {len(names)} símbolos, {sum(ref.values())} relocations "
+              f"com sym ({len(ref)} símbolos referenciados)")
+        return
+    pat = query.lower() if query else None
+    shown = 0
+    for i, (nm, val, size) in enumerate(names):
+        if shown >= 500:
+            print(f"# ... (corte em 500; refine a query)")
+            break
+        dem = _demangle(nm)
+        if pat and pat not in nm.lower() and pat not in dem.lower():
+            continue
+        tag = "UNDEF" if val == 0 else f"{BASE + val:#x}"
+        print(f"  [{i:4d}] {tag:>12s} size {size:<6d} relocs {ref.get(i, 0):<4d} {dem}"
+              + ("" if dem == nm else f"  <{nm}>"))
+        shown += 1
+    print(f"# {shown} símbolos" + (f" casando '{query}'" if query else ""))
 
 
 def cmd_reloc(va: int, n: int = 16, back: int = 0, reverse: bool = False) -> None:
@@ -2490,6 +2665,29 @@ def main() -> None:
             if v is None:
                 raise RexUsageError("reloc requires a VA")
             cmd_reloc(v, n, back, reverse)
+        elif cmd == "rela":
+            n = 16
+            back = 0
+            reverse = False
+            tfilter = None
+            v = None
+            it = iter(rest)
+            for x in it:
+                if x == "-n":
+                    n = int(next(it))
+                elif x == "-b":
+                    back = int(next(it))
+                elif x == "-a":
+                    reverse = True
+                elif x == "-t":
+                    tfilter = next(it)
+                else:
+                    v = _parse_va(x)
+            cmd_rela(v, n, back, reverse, tfilter)
+        elif cmd == "dynsym":
+            la = "-l" in rest
+            rr = [x for x in rest if x != "-l"]
+            cmd_dynsym(rr[0] if rr else None, la)
         elif cmd == "rodata":
             typ = "i32"
             n = 16

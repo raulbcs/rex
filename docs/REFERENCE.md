@@ -93,6 +93,8 @@ registry short names (`rex ann PlayerMove`).
 | `ctor <va\|name> [-l]` | static ctor chain: holders → vtables installed |
 | `reloc <va> [-n N]` | NSO relocation entries from VA |
 | `reloc -a <va>` | reverse: which vtable slots hold this function |
+| `rela [va] [-n N] [-b N] [-a] [-t T]` | .rela.dyn ancorada (ro+0x48): resumo/dump/reverse; `-t RELATIVE\|ABS64\|GLOB_DAT\|JUMP_SLOT`; reverse = células estáticas que apontam p/ o VA (dono/instância) |
+| `dynsym [q] [-l]` | símbolos .dynsym (imports nn:: SDK, RTTI) demangled via c++filt + contagem de relocations |
 | `ptr <va>` | resolve a .data/.rodata qword (function/vtable/global/string) |
 | `adrp <va>` | ADRP+ADD/LDR materializations of the VA |
 | `xref <va\|name>` | every corpus reference (file:line + function) |
