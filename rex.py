@@ -29,6 +29,7 @@ Commands (full details: docs/REFERENCE.md):
     reloc [-a]        NSO relocation entries / reverse (which vtable slots)
     rela [-a] [-t T]  .rela.dyn anchored table: summary / dump / reverse (dono de VA)
     dynsym [q] [-l]   .dynsym symbols (imports nn::, RTTI) + relocation counts
+    rtti [-l|-f SUB]  class names via RTTI: typeinfo objects + vtables com typeinfo
     ptr               resolve a .data/.rodata pointer
     adrp              ADRP+ADD/LDR materializations of a VA
     xref              every reference to a VA/global in the corpus
@@ -48,6 +49,7 @@ from __future__ import annotations
 
 import bisect
 import collections
+import ctypes
 import glob
 import json
 import os
@@ -1081,22 +1083,45 @@ def _dynsym_names():
 _DEMANGL_CACHE: dict[str, str] = {}
 
 
+def _cxa_demangle(m: str) -> str | None:
+    """__cxa_demangle via ctypes (libc++abi no macOS/Linux) -- sem dependências.
+
+    Resolve _Z símbolos, _ZTS typeinfo names E encodings de tipo puros
+    (c++filt do macOS não faz os dois últimos).
+    """
+    try:
+        lib = ctypes.CDLL(None)
+        f = lib.__cxa_demangle
+        f.restype = ctypes.c_char_p
+        f.argtypes = [ctypes.c_char_p, ctypes.c_char_p,
+                      ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_int)]
+        st = ctypes.c_int(0)
+        r = f(m.encode(), None, None, ctypes.byref(st))
+        if r:
+            return r.decode("utf-8", "replace")
+    except Exception:
+        pass
+    return None
+
+
 def _demangle(m: str) -> str:
-    """Demangle Itanium via c++filt (LLVM, presente no macOS); fallback = mangled."""
+    """Demangle Itanium: __cxa_demangle (ctypes) -> c++filt -> mangled."""
     if not m:
         return m
     if m in _DEMANGL_CACHE:
         return _DEMANGL_CACHE[m]
-    r = m
-    try:
-        out = subprocess.run(["c++filt", m], capture_output=True, text=True,
-                             timeout=5).stdout.strip()
-        if out and not out.startswith("_Z"):
-            r = out
-    except Exception:
-        pass
-    _DEMANGL_CACHE[m] = r
-    return r
+    r = _cxa_demangle(m)
+    if r is None:
+        try:
+            out = subprocess.run(["c++filt", m], capture_output=True, text=True,
+                                 timeout=5).stdout.strip()
+            if out and not out.startswith(("_Z", m)):
+                r = out
+        except Exception:
+            pass
+    v = r if r else m
+    _DEMANGL_CACHE[m] = v
+    return v
 
 
 def _rela_tag(t: int) -> str:
@@ -1461,6 +1486,14 @@ def cmd_vtable(va: int, json_out: bool = False, max_slots: int = 0, list_all: bo
         print(f"no relocations at {va:#x} -- not a vtable (or wrong start)")
         sys.exit(1)
     print(f"# vtable @ {va:#x} -- {len(slots)} slots")
+    _t, vt_to_ti = _rtti()
+    T = vt_to_ti.get(va)
+    if T is not None:
+        e = _t[T]
+        rtti_s = f"# RTTI: {e['dem']}  [{e['kind']}]"
+        if e["base_name"]:
+            rtti_s += f"  base: {e['base_name']}"
+        print(rtti_s)
     if reg_nm:
         ent = _VT_REGISTRY[reg_nm]
         print(f"# {reg_nm}: {ent.get('class', '?')} -- fonte: {ent.get('doc', '?')}")
@@ -1770,6 +1803,141 @@ def cmd_blr_find(func_va: int) -> None:
         print(f"    +{o:#x} {fn or '?'}  ({n} site(s))")
     if len(generic) > 15:
         print(f"    … +{len(generic) - 15}")
+
+
+def _cstr_at(va: int) -> str:
+    """C-string no binário em va ('' se fora dos segmentos)."""
+    fo = va_to_file(va)
+    if fo is None:
+        return ""
+    d = _DATA
+    assert d is not None
+    end = d.find(b"\x00", fo)
+    return d[fo:end].decode("ascii", "replace") if end > fo else ""
+
+
+# ---------------------------------------------------------------- RTTI (typeinfo)
+
+_RTTI = None             # (typeinfos, vt_to_ti)
+
+
+def _demangle_batch(raws: list[str]) -> dict[str, str]:
+    """Demangle em lote via __cxa_demangle (aceita _Z, _ZTS e type encoding puro)."""
+    out: dict[str, str] = {}
+    for m in raws:
+        v = _cxa_demangle(m)
+        if v and v.startswith("typeinfo name for "):
+            v = v[len("typeinfo name for "):]
+        out[m] = v if v else m
+    return out
+
+
+def _rtti():
+    """Mapa RTTI do binário: (typeinfos, vt_to_ti).
+
+    typeinfo objects = slots ABS64 cujo sym é um dos 3 vtables do dynsym
+    (__cxxabiv1 class/si/vmi type_info). T+0 = vptr, T+8 = char* _ZTS (nome
+    da classe mangled), T+0x10 = base (si). vtable -> typeinfo = slot
+    RELATIVE em vt-0x10 com addend = T. Vtables 'nuas' ([vt-0x10]=0) ficam
+    fora -- receita em references/rela-dyn.md.
+    """
+    global _RTTI
+    if _RTTI is not None:
+        return _RTTI
+    entries, _ = _rela()
+    by_slot = _RELA_BY_SLOT
+    assert by_slot is not None
+    names = _dynsym_names()
+    ti_syms: dict[int, str] = {}
+    for idx, (nm, _, _) in enumerate(names):
+        if "__cxxabiv1" not in nm or "type_infoE" not in nm:
+            continue
+        if "si_class" in nm:
+            ti_syms[idx] = "si"
+        elif "vmi_class" in nm:
+            ti_syms[idx] = "vmi"
+        elif "class_type" in nm:
+            ti_syms[idx] = "class"
+    typeinfos: dict[int, dict] = {}
+    for s, t, sym, _a in entries:
+        if t != 0x101 or sym not in ti_syms:
+            continue
+        typeinfos[BASE + s] = {"kind": ti_syms[sym], "raw": "",
+                               "dem": "", "base": None, "base_name": "", "vts": []}
+    # resolve nomes em lote
+    raws = []
+    for T, e in typeinfos.items():
+        nxt = by_slot.get(T - BASE + 8)
+        if nxt and nxt[0] == 0x403:
+            e["raw"] = _cstr_at(BASE + nxt[2])
+            if e["raw"]:
+                raws.append(e["raw"])
+    dem = _demangle_batch(raws)
+    for T, e in typeinfos.items():
+        if e["raw"]:
+            e["dem"] = dem.get(e["raw"], e["raw"])
+        if e["kind"] == "si":
+            nb = by_slot.get(T - BASE + 0x10)
+            if nb and nb[0] == 0x403:
+                e["base"] = BASE + nb[2]
+    # vtable -> typeinfo (slot RELATIVE com addend = T => vt = slot + 0x10)
+    ti_off = {T - BASE for T in typeinfos}
+    vt_to_ti: dict[int, int] = {}
+    for s, t, sym, a in entries:
+        if t == 0x403 and a in ti_off:
+            vt = BASE + s + 0x10
+            vt_to_ti[vt] = BASE + a
+            typeinfos[BASE + a]["vts"].append(vt)
+    for T, e in typeinfos.items():
+        b = e["base"]
+        if b is not None and b in typeinfos:
+            e["base_name"] = typeinfos[b]["dem"]
+    _RTTI = (typeinfos, vt_to_ti)
+    return _RTTI
+
+
+def cmd_rtti(va: int | None, list_all: bool = False, filt: str | None = None) -> None:
+    """rtti: classes de vtables/typeinfos via .rela.dyn (RTTI oracle)."""
+    typeinfos, vt_to_ti = _rtti()
+    if va is None and not list_all and not filt:      # resumo
+        kinds = Counter(e["kind"] for e in typeinfos.values())
+        named = sum(1 for e in typeinfos.values() if e["dem"])
+        print(f"# RTTI: {len(typeinfos)} typeinfo objects ({named} com nome), "
+              f"{len(vt_to_ti)} vtables com slot de typeinfo")
+        for k, c in sorted(kinds.items()):
+            print(f"  {k:5s} {c:5d}")
+        print("# uso: rex rtti -l | rex rtti -f SUB | rex rtti <va de typeinfo ou vtable>")
+        return
+    if va is not None:                                # typeinfo OU vtable
+        e = typeinfos.get(va)
+        if e is not None:
+            print(f"# typeinfo @ {va:#x}  [{e['kind']}]  {e['dem']}  <{e['raw']}>")
+            if e["base_name"]:
+                print(f"#   base: {e['base_name']}")
+            for vt in e["vts"][:8]:
+                print(f"#   vtable: {vt:#x}")
+            if len(e["vts"]) > 8:
+                print(f"#   ... +{len(e['vts']) - 8} vtables")
+            return
+        T = vt_to_ti.get(va)
+        if T is not None:
+            e = typeinfos[T]
+            print(f"# vtable @ {va:#x}  [{e['kind']}]  {e['dem']}")
+            if e["base_name"]:
+                print(f"# base: {e['base_name']}")
+            return
+        print(f"# sem typeinfo em {va:#x} (vtable nua [vt-0x10]=0 ou não-vtable)")
+        return
+    rows = []
+    for vt, T in vt_to_ti.items():
+        e = typeinfos[T]
+        if filt and filt.lower() not in e["dem"].lower() and filt.lower() not in e["raw"].lower():
+            continue
+        rows.append((vt, e))
+    for vt, e in sorted(rows):
+        base = f"  <- {e['base_name']}" if e["base_name"] else ""
+        print(f"  vt {vt:#x}  [{e['kind']}] {e['dem']}{base}")
+    print(f"# {len(rows)} vtables" + (f" casando '{filt}'" if filt else ""))
 
 
 def cmd_rela(va: int | None, n: int = 16, back: int = 0, reverse: bool = False,
@@ -2688,6 +2856,13 @@ def main() -> None:
             la = "-l" in rest
             rr = [x for x in rest if x != "-l"]
             cmd_dynsym(rr[0] if rr else None, la)
+        elif cmd == "rtti":
+            la = "-l" in rest
+            fidx = rest.index("-f") if "-f" in rest else -1
+            filt = rest[fidx + 1] if fidx >= 0 else None
+            rr = [x for i, x in enumerate(rest)
+                  if x != "-l" and x != "-f" and not (fidx >= 0 and i == fidx + 1)]
+            cmd_rtti(_parse_va(rr[0]) if rr else None, la, filt)
         elif cmd == "rodata":
             typ = "i32"
             n = 16

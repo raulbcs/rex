@@ -94,7 +94,8 @@ registry short names (`rex ann PlayerMove`).
 | `reloc <va> [-n N]` | NSO relocation entries from VA |
 | `reloc -a <va>` | reverse: which vtable slots hold this function |
 | `rela [va] [-n N] [-b N] [-a] [-t T]` | .rela.dyn ancorada (ro+0x48): resumo/dump/reverse; `-t RELATIVE\|ABS64\|GLOB_DAT\|JUMP_SLOT`; reverse = células estáticas que apontam p/ o VA (dono/instância) |
-| `dynsym [q] [-l]` | símbolos .dynsym (imports nn:: SDK, RTTI) demangled via c++filt + contagem de relocations |
+| `dynsym [q] [-l]` | símbolos .dynsym (imports nn:: SDK, RTTI) demangled (__cxa_demangle) + contagem de relocations |
+| `rtti [-l] [-f SUB] / rtti <va>` | classes via RTTI: 925 typeinfo objects → 1691 vtables nomeadas (SDK); vtables do jogo são RTTI-less; `<va>` aceita typeinfo OU vtable |
 | `ptr <va>` | resolve a .data/.rodata qword (function/vtable/global/string) |
 | `adrp <va>` | ADRP+ADD/LDR materializations of the VA |
 | `xref <va\|name>` | every corpus reference (file:line + function) |
