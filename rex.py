@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["capstone"]
+# ///
 """rex -- RE EXamine: query a Switch binary + its Ghidra corpus (stdlib only).
 
 Every command examines one thing. Examples:
@@ -434,6 +438,29 @@ def _ann_line(line: str) -> str:
     return line.rstrip() + "   ⟦" + " · ".join(notes) + "⟧"
 
 
+_DECOMP_FAIL = re.compile(r"^// DECOMP FAIL: (.*)$")
+
+
+def _decomp_fail_reason(body: str | None) -> str | None:
+    """Se o corpo C for o marcador do dumper ('// DECOMP FAIL: <err>'), devolve o erro.
+
+    O Ghidra (FullDecompDump.java) grava uma linha '// DECOMP FAIL: <erro>' no lugar
+    do C quando decompilaçoção falha (common em função com jumptable/switch). O C aí
+    NÃO é utilizável — é lixo. Este helper detecta isso pra avisar o usuário a ler ASM.
+    """
+    if not body:
+        return None
+    for ln in body.splitlines():
+        if ln.startswith("// ===== "):      # marcador de início de função no shard
+            continue
+        m = _DECOMP_FAIL.match(ln)
+        if m:
+            return m.group(1).strip()
+        if ln.startswith("//"):             # outro comentário de topo
+            continue
+        return None                          # primeira linha de C real → decomp ok
+
+
 def cmd_ann(va: int, n_context: int = 0) -> None:
     """Decomp body with inline semantic annotations."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))  # rex vive em ~/rex
@@ -448,6 +475,12 @@ def cmd_ann(va: int, n_context: int = 0) -> None:
         if body is None:
             print(f"body of {va:#x} not found in corpus")
             sys.exit(1)
+    _fail = _decomp_fail_reason(body)
+    if _fail:
+        print(f"# ⚠ decomp FALHOU (Ghidra): {_fail}")
+        print(f"#   o C aqui não é utilizável — leia o ASM real:")
+        print(f"#     rex body -a 0x{va:x}")
+        return
     _load_memmap()
     assert _MEMMAP is not None
     print(f"# {_MEMMAP_NOTE}")
@@ -471,6 +504,13 @@ def cmd_body(va: int, asm: bool) -> None:
     from shard_resolve import ShardIndex
     idx = ShardIndex()
     body = idx.load_asm(va) if asm else idx.load_decomp(va)
+    if not asm:
+        _fail = _decomp_fail_reason(body)
+        if _fail:
+            print(f"# decomp FALHOU (Ghidra): {_fail}")
+            print(f"# C não é utilizável — corpo ASM real de 0x{va:x}:")
+            print(idx.load_asm(va) or "(asm não disponível)")
+            return
     if body is None:
         # not a catalogued start: tell mid-function from gap
         f = fn_of(va)
@@ -2120,7 +2160,37 @@ def cmd_fn_range(lo: int, hi: int) -> None:
 
 # ------------------------------------------------------------- shards (generation)
 
-def cmd_shards(target: str = "all", force: bool = False) -> None:
+def _merge_manual_baseline(outdir: Path) -> None:
+    """Restaura no functions.tsv gerado as linhas 'manuais' (splits mid-function
+    recatalogados que o Ghidra/dumper nao gera como funcao propria).
+
+    Fonte = snapshot versionado data/corpus-baseline/<decomp|asm>-functions.tsv.
+    Qualquer addr presente no baseline mas AUSENTE no dump puro e' manual →
+    re-apendado. Assim functions.tsv continua a FONTE UNICA de resolucao, 100%
+    automatica no dump, e o regen nunca perde o trabalho manual.
+    """
+    corpus = "decomp" if outdir.name == "decomp-full" else "asm"
+    base = outdir.parent / "corpus-baseline" / f"{corpus}-functions.tsv"
+    tsv = outdir / "functions.tsv"
+    if not base.exists() or not tsv.exists():
+        return
+    have = set()
+    for line in tsv.read_text().splitlines():
+        p = line.split("\t")
+        if len(p) > 1 and p[0] not in ("entry",):
+            have.add(p[0])
+    added = []
+    for line in base.read_text().splitlines():
+        p = line.split("\t")
+        if len(p) > 1 and p[0] not in ("entry",) and p[0] not in have:
+            added.append(line)
+    if added:
+        with open(tsv, "a") as f:
+            f.write("\n".join(added) + "\n")
+        print(f"# {corpus}: +{len(added)} entradas manuais restauradas do baseline")
+
+
+def cmd_shards(target: str = "all", resume: bool = False) -> None:
     """Generates the corpus (shards) via Ghidra headless -- the whole recipe.
 
     Steps:
@@ -2136,8 +2206,10 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
          - asm:    FullAsmDump    (~100 s)
     Output in $REX_ROOT/data/{decomp,asm}-full/.
 
-    `target`: all | decomp | asm. `force`: ignores existing outputs
-    (decomp has RESUME -- without force, only completes missing ones).
+    `target`: all | decomp | asm. `--force`: (mantido por compat) idem ao default = regen
+    COMPLETO. `--resume`: skip as 'ok' ja decompiladas (so completa as que faltam/falharam)
+    -- util para retomar um run interrompido sem refazer os ~7 min. Default = refazer tudo:
+    corpo 'ok' antigo/errado nao deve ficar congelado.
 
     Config (env > ~/.rexrc; see rexconfig.py): REX_ROOT, REX_DUMPERS
     (default $REX_ROOT/dumpers), REX_GHIDRA_PROJ (default
@@ -2204,13 +2276,12 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
         if not src.exists():
             raise RexConfigError(f"dumper not found: {src}")
         tsv = outdir / "functions.tsv"
-        if resume_ok and tsv.exists() and not force:
-            print(f"# {cls}: RESUME -- functions.tsv exists; completing missing ones")
-        if force:
-            # full regen REAL: o resume do dumper vive no functions.tsv (aberto
-            # em APPEND) e a numeracao de shards continua do primeiro arquivo
-            # LIVRE -- sem limpar antes, tsv/shards velhos nunca sao
-            # sobrescritos e tudo 'ok' e pulado de novo (skipped=total).
+        if resume_ok:
+            print(f"# {cls}: RESUME -- skip 'ok' ja decompiladas; so completa as que faltam")
+        else:
+            # regen COMPLETO por padrao (sem skip-ok): limpa os outputs antes.
+            # functions.tsv e' aberto em APPEND e os shards continuam do arquivo LIVRE;
+            # sem limpar, tudo 'ok' seria decompilado de novo e DUPLICADO no tsv/shards.
             stale = [outdir / "functions.tsv", outdir / "progress.log"]
             stale += sorted(outdir.glob("shard-*.txt"))
             n = 0
@@ -2218,7 +2289,7 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
                 if p.exists():
                     p.unlink()
                     n += 1
-            print(f"# {cls}: --force limpeza previa ({n} arquivos)")
+            print(f"# {cls}: regen COMPLETO (limpeza previa de {n} arquivos)")
         print(f"== {cls} → {outdir}")
         # 1. fantasmas + cache OSGi
         _osgiclear(cls)
@@ -2265,6 +2336,7 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
         # inject resolved config into the subprocess env (Java doesn't read ~/.rexrc)
         sub_env = dict(os.environ)
         sub_env["REX_ROOT"] = str(_root())
+        sub_env["REX_DECOMP_RESUME"] = "1" if resume_ok else "0"
         print(f"# {' '.join(cmd)}  (cwd=/tmp)")
         proc = subprocess.run(cmd, cwd="/tmp", capture_output=True, text=True,
                               env=sub_env)
@@ -2279,9 +2351,11 @@ def cmd_shards(target: str = "all", force: bool = False) -> None:
         # Ghidra progress dump output goes to ROOT/data/*/progress.log
 
     if target in ("all", "decomp"):
-        _run_dump("FullDecompDump", _root() / "data" / "decomp-full", resume_ok=True)
+        _run_dump("FullDecompDump", _root() / "data" / "decomp-full", resume_ok=resume)
+        _merge_manual_baseline(_root() / "data" / "decomp-full")
     if target in ("all", "asm"):
-        _run_dump("FullAsmDump", _root() / "data" / "asm-full", resume_ok=False)
+        _run_dump("FullAsmDump", _root() / "data" / "asm-full", resume_ok=resume)
+        _merge_manual_baseline(_root() / "data" / "asm-full")
 
 
 def main() -> None:
@@ -2444,15 +2518,17 @@ def main() -> None:
             cmd_headers(rest[0])
         elif cmd == "shards":
             target = "all"
-            force = False
+            resume = False
             for a in rest:
                 if a in ("all", "decomp", "asm"):
                     target = a
+                elif a == "--resume":
+                    resume = True
                 elif a == "--force":
-                    force = True
+                    resume = False      # --force mantido por compat = regen completo (default)
                 else:
-                    raise RexUsageError("shards takes [all|decomp|asm] [--force]")
-            cmd_shards(target, force)
+                    raise RexUsageError("shards takes [all|decomp|asm] [--resume|--force]")
+            cmd_shards(target, resume)
         else:
             print(f"unknown command: {cmd}")
             print(__doc__)
